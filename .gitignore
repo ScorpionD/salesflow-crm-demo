@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+runtime.env
+test.env
+secrets/
+.wrangler/
+coverage/
+*.log
+*.tgz
+.DS_Store

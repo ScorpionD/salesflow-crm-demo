@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.env
+.env.*
+runtime.env
+test.env
+secrets
+design
+media
+.wrangler
+*.tgz
