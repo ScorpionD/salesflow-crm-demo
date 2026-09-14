@@ -1,0 +1,45 @@
+name: CRM verification
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: crm-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: salesflow_test
+          POSTGRES_PASSWORD: ephemeral-ci-only
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d salesflow_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      # Disposable CI credentials, never used by a deployed service.
+      PGPASSWORD: ephemeral-ci-only
+      TEST_DATABASE_URL: postgres://salesflow_app:ephemeral-app-only@127.0.0.1:5432/salesflow_test
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Prepare restricted PostgreSQL test role
+        run: |
+          psql -h 127.0.0.1 -U postgres -d salesflow_test -v ON_ERROR_STOP=1 -c "CREATE ROLE salesflow_app LOGIN PASSWORD 'ephemeral-app-only' NOSUPERUSER NOCREATEDB NOCREATEROLE"
+          psql -h 127.0.0.1 -U postgres -d salesflow_test -v ON_ERROR_STOP=1 -f server/schema.sql
+          psql -h 127.0.0.1 -U postgres -d salesflow_test -v ON_ERROR_STOP=1 -f db/grants.sql
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
