@@ -2,7 +2,7 @@
 
 **A working sales operations demo, designed in Figma and implemented end to end.**
 
-[Live demo](https://salesflow-crm-demo.pages.dev/) · [Figma design](https://www.figma.com/design/tHCwZwV8Mv5jjPOOVf4UPG/SalesFlow-CRM--Portfolio-Design) · [Clickable prototype](https://www.figma.com/proto/tHCwZwV8Mv5jjPOOVf4UPG/SalesFlow-CRM--Portfolio-Design?node-id=1-2&starting-point-node-id=1%3A2&scaling=min-zoom&page-id=0%3A1) · [Screenshots](media/README.md) · [API reference](docs/api.md)
+[Live demo](https://salesflow-crm-demo-7id.pages.dev/) · [Figma design](https://www.figma.com/design/tHCwZwV8Mv5jjPOOVf4UPG/SalesFlow-CRM--Portfolio-Design) · [Clickable prototype](https://www.figma.com/proto/tHCwZwV8Mv5jjPOOVf4UPG/SalesFlow-CRM--Portfolio-Design?node-id=1-2&starting-point-node-id=1%3A2&scaling=min-zoom&page-id=0%3A1) · [Screenshots](media/README.md) · [API reference](docs/api.md)
 
 ![SalesFlow CRM cover](media/cover.png)
 

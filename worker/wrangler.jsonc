@@ -8,7 +8,7 @@
     "enabled": false
   },
   "vars": {
-    "PUBLIC_ORIGIN": "https://salesflow-crm-demo.pages.dev"
+    "PUBLIC_ORIGIN": "https://salesflow-crm-demo-7id.pages.dev"
   },
   "ratelimits": [
     {

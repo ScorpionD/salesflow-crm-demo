@@ -1,6 +1,6 @@
 import {it,expect,vi} from 'vitest';
 import gateway from '../worker/index.mjs';
-const origin='https://salesflow-crm-demo.pages.dev';
+const origin='https://salesflow-crm-demo-7id.pages.dev';
 function env(){return {PUBLIC_ORIGIN:origin,ORIGIN_SECRET:'test-origin-only',EDGE_RATE:{limit:vi.fn(async()=>({success:true}))},PRIVATE_API:{fetch:vi.fn(async(_request:Request)=>Response.json({ok:true}))}};}
 it('blocks internal automation URLs',async()=>expect((await gateway.fetch(new Request(origin+'/internal/automation/claim'),env())).status).toBe(404));
 it('rejects another origin',async()=>expect((await gateway.fetch(new Request('https://example.com/api/session'),env())).status).toBe(403));

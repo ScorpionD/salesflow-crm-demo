@@ -11,3 +11,5 @@ coverage/
 *.log
 *.tgz
 .DS_Store
+
+*.tsbuildinfo
