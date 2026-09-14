@@ -1,58 +1,1566 @@
-import {useCallback,useEffect,useRef,useState,type FormEvent} from 'react';
-import {Activity as ActivityIcon,ArrowLeft,ArrowRight,BarChart3,Bell,Building2,Check,ChevronLeft,ChevronRight,Eye,GitBranch,LayoutDashboard,ListTodo,LogOut,Menu,Plus,RefreshCw,Settings,ShieldCheck,Users,X,Zap} from 'lucide-react';
-import {api,ApiError,setCsrf} from './services/api';
-import {Avatar,Badge,BusinessBlocks,Empty,ErrorBox,Login,Modal,RecordForm,SearchField,Spinner,StageForm} from './components';
-import {type Activity,type Bootstrap,type CRMRecord,type Detail,type Kind,type Member,type Role,type Session,canWrite,dateLabel,labels,money,overdue,roleNames,titleCase} from './types';
-const pages=[['dashboard','Dashboard',LayoutDashboard],['contacts','Contacts',Users],['companies','Companies',Building2],['pipeline','Pipeline',GitBranch],['tasks','Tasks',ListTodo],['reports','Reports',BarChart3],['activity','Activity',ActivityIcon],['settings','Team & settings',Settings]] as const;
-type Edit={kind:Kind;record?:CRMRecord;defaults?:Partial<CRMRecord>};
-const initialRoute=()=>location.hash.slice(1)||'dashboard';
-export default function App(){
- const [data,setData]=useState<Bootstrap|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState<unknown>(),[busy,setBusy]=useState(false),[route,setRoute]=useState(initialRoute),[mobile,setMobile]=useState(false),[live,setLive]=useState('Connecting'),[toast,setToast]=useState(''),[edit,setEdit]=useState<Edit>(),[stage,setStage]=useState<CRMRecord>(),[roles,setRoles]=useState(false),[revision,setRevision]=useState(0);
- const refreshId=useRef(0),toastTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
- const notify=useCallback((s:string)=>{setToast(s);clearTimeout(toastTimer.current);toastTimer.current=setTimeout(()=>setToast(''),5000);},[]);
- const refresh=useCallback(async()=>{const id=++refreshId.current;try{const d=await api<Bootstrap>('/bootstrap');if(id!==refreshId.current)return;setCsrf(d.session.csrf);setData(d);setError(undefined);setRevision(n=>n+1);}catch(e){if(id!==refreshId.current)return;if(e instanceof ApiError&&e.status===401){setData(null);setCsrf('');}else setError(e);}finally{if(id===refreshId.current)setLoading(false);}},[]);
- useEffect(()=>{void refresh();return()=>{refreshId.current++;clearTimeout(toastTimer.current);};},[refresh]);
- useEffect(()=>{const f=()=>{setRoute(initialRoute());setMobile(false);};window.addEventListener('hashchange',f);return()=>window.removeEventListener('hashchange',f);},[]);
- const wid=data?.session.workspace_id;
- useEffect(()=>{window.scrollTo({top:0,left:0,behavior:'instant'});},[route,wid]);
- useEffect(()=>{if(!wid)return;const stream=new EventSource('/api/events');let timer:ReturnType<typeof setTimeout>|undefined;setLive('Connecting');stream.onopen=()=>setLive('Live updates');stream.onerror=()=>setLive('Reconnecting');stream.addEventListener('sync',()=>{clearTimeout(timer);timer=setTimeout(()=>{void refresh();},180);});const visible=()=>{if(!document.hidden)void refresh();};document.addEventListener('visibilitychange',visible);return()=>{stream.close();clearTimeout(timer);document.removeEventListener('visibilitychange',visible);};},[wid,refresh]);
- const go=(next:string)=>{location.hash=next;setRoute(next);setMobile(false);};
- async function enter(role:Role){setBusy(true);setError(undefined);try{const r=await api<{session:Session}>(data?'/session/role':'/session','POST',{role});setCsrf(r.session.csrf);setRoles(false);await refresh();go('dashboard');}catch(e){setError(e);}finally{setBusy(false);}}
- const saved=(text='Changes saved')=>{setEdit(undefined);setStage(undefined);notify(text);void refresh();};
- if(loading)return <div className="boot"><span className="logo">S</span><Spinner/></div>;
- if(!data)return <Login enter={enter} busy={busy} error={error}/>;
- const currentPage=route.split('/')[0],detailKind=route.split('/')[1] as Kind,detailId=route.split('/')[2],pageTitle=pages.find(p=>p[0]===currentPage)?.[1]||'Record details',session=data.session;
- const readOnly=session.role==='viewer';
- return <div className="app-shell"><a className="skip-link" href="#main-content" onClick={e=>{e.preventDefault();document.getElementById("main-content")?.focus();}}>Skip to content</a>{mobile&&<button className="nav-scrim" onClick={()=>setMobile(false)} aria-label="Close navigation"/>}<aside className={'sidebar '+(mobile?'open':'')}><a href="#dashboard" className="brand"><span>S</span>SalesFlow</a><button className="icon-button mobile-close" aria-label="Close navigation" onClick={()=>setMobile(false)}><X/></button><div className="workspace-label">NORTHLINE WORKSPACE<small>Private 24-hour demo</small></div><nav aria-label="Main navigation">{pages.map(([key,label,Icon])=><a key={key} href={'#'+key} className={currentPage===key||currentPage==='detail'&&key===(detailKind==='deals'?'pipeline':detailKind)?'active':''} onClick={()=>setMobile(false)}><Icon size={18}/>{label}{key==='tasks'&&data.reports.overdue_tasks>0&&<span className="nav-count">{data.reports.overdue_tasks}</span>}</a>)}</nav><button className="profile" onClick={()=>setRoles(true)}><Avatar name={session.name}/><span><strong>{session.name}</strong><small>{roleNames[session.role]}</small></span></button></aside><div className="app-body"><header className="topbar"><button className="icon-button mobile-menu" aria-label="Open navigation" onClick={()=>setMobile(true)}><Menu/></button><div className="breadcrumb">Workspace <span>/</span> <strong>{pageTitle}</strong></div><div className="topbar-right"><span className={'live-status '+(live==='Live updates'?'connected':'')} aria-live="polite"><i/>{live}</span><button className="icon-button" title="Refresh workspace" aria-label="Refresh workspace" onClick={()=>{void refresh();}}><RefreshCw size={17}/></button><button className="avatar-button" onClick={()=>setRoles(true)} aria-label="Switch demo role"><Avatar name={session.name}/></button></div></header><main id="main-content" tabIndex={-1}>{readOnly&&<div className="readonly"><Eye size={16}/>Viewer mode: explore the workspace. Editing is disabled.</div>}{Boolean(error)&&<ErrorBox error={error} retry={()=>{void refresh();}}/>}
- {currentPage==='dashboard'&&<><PageHeading title={'Good to see you, '+session.name.split(' ')[0]} subtitle="A clear view of your pipeline and the next conversation." action={!readOnly&&<button className="primary" onClick={()=>setEdit({kind:'deals'})}><Plus size={17}/>Add deal</button>}/><Metrics data={data}/><div className="dashboard-grid"><section className="panel"><PanelHeading title="Pipeline overview" subtitle="Open opportunities by stage" action={<button className="text-button" onClick={()=>go('pipeline')}>View pipeline <ArrowRight size={14}/></button>}/><StageBars data={data} openOnly/></section><section className="panel"><PanelHeading title="Next actions" subtitle="Keep the right conversation moving" action={<Badge tone="amber">{data.reports.overdue_tasks} overdue</Badge>}/><TaskRows tasks={[...data.tasks].filter(t=>t.status!=='completed').sort((a,b)=>String(a.due_at).localeCompare(String(b.due_at))).slice(0,4)} data={data} open={r=>go('detail/tasks/'+r.id)} onEdit={r=>setEdit({kind:'tasks',record:r})}/><button className="text-button footer-link" onClick={()=>go('tasks')}>View all tasks <ArrowRight size={14}/></button></section><section className="panel dashboard-activity"><PanelHeading title="Recent activity" subtitle="A shared history of sales work" action={<button className="text-button" onClick={()=>go('activity')}>All activity <ArrowRight size={14}/></button>}/><Timeline items={data.activities.slice(0,5)} data={data}/></section></div></>}
- {(currentPage==='contacts'||currentPage==='companies'||currentPage==='tasks')&&<RecordList key={currentPage} kind={currentPage} data={data} revision={revision} onAdd={()=>setEdit({kind:currentPage})} open={r=>go('detail/'+currentPage+'/'+r.id)} onEdit={r=>setEdit({kind:currentPage,record:r})}/>}
- {currentPage==='pipeline'&&<Pipeline data={data} onAdd={()=>setEdit({kind:'deals'})} open={r=>go('detail/deals/'+r.id)} move={setStage}/>}
- {currentPage==='detail'&&['companies','contacts','deals','tasks'].includes(detailKind)&&<RecordDetail key={detailKind+detailId} kind={detailKind} id={detailId} data={data} revision={revision} back={()=>go(detailKind==='deals'?'pipeline':detailKind)} edit={r=>setEdit({kind:detailKind,record:r})} move={setStage} saved={saved} open={(k,id)=>go('detail/'+k+'/'+id)} addTask={r=>setEdit({kind:'tasks',defaults:{[labels[detailKind]+'_id']:r.id}})}/>}
- {currentPage==='reports'&&<><PageHeading title="Reports" subtitle="Real workspace data. Useful sales signals."/><Metrics data={data} reports/><div className="reports-grid"><section className="panel"><PanelHeading title="Pipeline by stage" subtitle="Open and closed opportunity values"/><StageBars data={data}/></section><section className="panel"><PanelHeading title="Sales by owner" subtitle="Won revenue, not speculative forecasts"/>{data.reports.by_owner.map(o=><div className="owner-result" key={o.id}><Avatar name={o.name}/><div><strong>{o.name}</strong><small>{o.count} deals · {money(o.open_value)} open</small></div><b>{money(o.won_value)}</b></div>)}<p className="formula">Conversion = Won / (Won + Lost)<br/><span>Open deals are excluded from the denominator. Closed deals remain included when archived.</span></p></section></div><AutomationPanel data={data}/></>}
- {currentPage==='activity'&&<><PageHeading title="Activity" subtitle="A trustworthy history of sales work."/><section className="panel"><PanelHeading title="Workspace activity" subtitle="Latest 100 committed events · updates appear live"/><Timeline items={data.activities} data={data}/></section></>}
- {currentPage==='settings'&&<><PageHeading title="Team & settings" subtitle="A small team. Clear permissions."/><Team data={data} saved={saved}/><div className="reports-grid"><AutomationPanel data={data}/><section className="panel"><PanelHeading title="Private demo session" subtitle="Temporary fictional data for this visitor"/><p>Your dataset expires on {new Date(session.expires_at).toLocaleString()}.</p><p className="muted">Other visitors receive separate workspaces. Tabs in this browser share the same session and demo role.</p><div className="button-row"><button onClick={()=>setRoles(true)}>Switch demo role</button><button onClick={async()=>{try{await api('/session/logout','POST',{});setData(null);setCsrf('');}catch(e){setError(e);}}}><LogOut size={16}/>Leave demo</button></div></section></div><BusinessBlocks/></>}
- </main><footer className="app-footer"><span>SalesFlow CRM · Fictional data · {roleNames[session.role]}</span><button className="text-button" onClick={()=>go('settings')}>Design, architecture & demo details <ArrowRight size={13}/></button></footer></div>{toast&&<div className="toast" role="status"><Check size={18}/>{toast}<button aria-label="Dismiss notification" onClick={()=>setToast('')}><X size={16}/></button></div>}{edit&&<RecordForm {...edit} data={data} onClose={()=>setEdit(undefined)} onSaved={()=>saved()}/>}{stage&&<StageForm record={stage} data={data} onClose={()=>setStage(undefined)} onSaved={()=>saved('Pipeline updated')}/>}{roles&&<Modal title="Switch demo role" onClose={()=>setRoles(false)} busy={busy}><div className="modal-body"><p>This changes the demo persona for this private workspace across your browser tabs.</p>{(['manager','representative','viewer'] as Role[]).map(r=><button className="role-choice" key={r} disabled={busy||!data.members.find(m=>m.role===r)?.active} onClick={()=>enter(r)}><span>{roleNames[r]}<small>{r==='manager'?'All records, team and assignments':r==='representative'?'Assigned records only':'Read-only access'}</small></span>{session.role===r?<Check size={18}/>:<ArrowRight size={18}/>}</button>)}</div></Modal>}</div>;
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  Activity as ActivityIcon,
+  ArrowLeft,
+  ArrowRight,
+  BarChart3,
+  Bell,
+  Building2,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  GitBranch,
+  LayoutDashboard,
+  ListTodo,
+  LogOut,
+  Menu,
+  Plus,
+  RefreshCw,
+  Settings,
+  ShieldCheck,
+  Users,
+  X,
+  Zap,
+} from 'lucide-react';
+import { api, ApiError, setCsrf } from './services/api';
+import {
+  Avatar,
+  Badge,
+  BusinessBlocks,
+  Empty,
+  ErrorBox,
+  Login,
+  Modal,
+  RecordForm,
+  SearchField,
+  Spinner,
+  StageForm,
+} from './components';
+import {
+  type Activity,
+  type Bootstrap,
+  type CRMRecord,
+  type Detail,
+  type Kind,
+  type Member,
+  type Role,
+  type Session,
+  canWrite,
+  dateLabel,
+  labels,
+  money,
+  overdue,
+  roleNames,
+  titleCase,
+} from './types';
+const pages = [
+  ['dashboard', 'Dashboard', LayoutDashboard],
+  ['contacts', 'Contacts', Users],
+  ['companies', 'Companies', Building2],
+  ['pipeline', 'Pipeline', GitBranch],
+  ['tasks', 'Tasks', ListTodo],
+  ['reports', 'Reports', BarChart3],
+  ['activity', 'Activity', ActivityIcon],
+  ['settings', 'Team & settings', Settings],
+] as const;
+type Edit = { kind: Kind; record?: CRMRecord; defaults?: Partial<CRMRecord> };
+const initialRoute = () => location.hash.slice(1) || 'dashboard';
+export default function App() {
+  const [data, setData] = useState<Bootstrap | null>(null),
+    [loading, setLoading] = useState(true),
+    [error, setError] = useState<unknown>(),
+    [busy, setBusy] = useState(false),
+    [route, setRoute] = useState(initialRoute),
+    [mobile, setMobile] = useState(false),
+    [live, setLive] = useState('Connecting'),
+    [toast, setToast] = useState(''),
+    [edit, setEdit] = useState<Edit>(),
+    [stage, setStage] = useState<CRMRecord>(),
+    [roles, setRoles] = useState(false),
+    [revision, setRevision] = useState(0);
+  const refreshId = useRef(0),
+    toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const notify = useCallback((s: string) => {
+    setToast(s);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(''), 5000);
+  }, []);
+  const refresh = useCallback(async () => {
+    const id = ++refreshId.current;
+    try {
+      const d = await api<Bootstrap>('/bootstrap');
+      if (id !== refreshId.current) return;
+      setCsrf(d.session.csrf);
+      setData(d);
+      setError(undefined);
+      setRevision((n) => n + 1);
+    } catch (e) {
+      if (id !== refreshId.current) return;
+      if (e instanceof ApiError && e.status === 401) {
+        setData(null);
+        setCsrf('');
+      } else setError(e);
+    } finally {
+      if (id === refreshId.current) setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void refresh();
+    return () => {
+      refreshId.current++;
+      clearTimeout(toastTimer.current);
+    };
+  }, [refresh]);
+  useEffect(() => {
+    const f = () => {
+      setRoute(initialRoute());
+      setMobile(false);
+    };
+    window.addEventListener('hashchange', f);
+    return () => window.removeEventListener('hashchange', f);
+  }, []);
+  const wid = data?.session.workspace_id;
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [route, wid]);
+  useEffect(() => {
+    if (!wid) return;
+    const stream = new EventSource('/api/events');
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    setLive('Connecting');
+    stream.onopen = () => setLive('Live updates');
+    stream.onerror = () => setLive('Reconnecting');
+    stream.addEventListener('sync', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void refresh();
+      }, 180);
+    });
+    const visible = () => {
+      if (!document.hidden) void refresh();
+    };
+    document.addEventListener('visibilitychange', visible);
+    return () => {
+      stream.close();
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', visible);
+    };
+  }, [wid, refresh]);
+  const go = (next: string) => {
+    location.hash = next;
+    setRoute(next);
+    setMobile(false);
+  };
+  async function enter(role: Role) {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const r = await api<{ session: Session }>(data ? '/session/role' : '/session', 'POST', {
+        role,
+      });
+      setCsrf(r.session.csrf);
+      setRoles(false);
+      await refresh();
+      go('dashboard');
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const saved = (text = 'Changes saved') => {
+    setEdit(undefined);
+    setStage(undefined);
+    notify(text);
+    void refresh();
+  };
+  if (loading)
+    return (
+      <div className="boot">
+        <span className="logo">S</span>
+        <Spinner />
+      </div>
+    );
+  if (!data) return <Login enter={enter} busy={busy} error={error} />;
+  const currentPage = route.split('/')[0],
+    detailKind = route.split('/')[1] as Kind,
+    detailId = route.split('/')[2],
+    pageTitle = pages.find((p) => p[0] === currentPage)?.[1] || 'Record details',
+    session = data.session;
+  const readOnly = session.role === 'viewer';
+  return (
+    <div className="app-shell">
+      <a
+        className="skip-link"
+        href="#main-content"
+        onClick={(e) => {
+          e.preventDefault();
+          document.getElementById('main-content')?.focus();
+        }}
+      >
+        Skip to content
+      </a>
+      {mobile && (
+        <button
+          className="nav-scrim"
+          onClick={() => setMobile(false)}
+          aria-label="Close navigation"
+        />
+      )}
+      <aside className={'sidebar ' + (mobile ? 'open' : '')}>
+        <a href="#dashboard" className="brand">
+          <span>S</span>SalesFlow
+        </a>
+        <button
+          className="icon-button mobile-close"
+          aria-label="Close navigation"
+          onClick={() => setMobile(false)}
+        >
+          <X />
+        </button>
+        <div className="workspace-label">
+          NORTHLINE WORKSPACE<small>Private 24-hour demo</small>
+        </div>
+        <nav aria-label="Main navigation">
+          {pages.map(([key, label, Icon]) => (
+            <a
+              key={key}
+              href={'#' + key}
+              className={
+                currentPage === key ||
+                (currentPage === 'detail' &&
+                  key === (detailKind === 'deals' ? 'pipeline' : detailKind))
+                  ? 'active'
+                  : ''
+              }
+              onClick={() => setMobile(false)}
+            >
+              <Icon size={18} />
+              {label}
+              {key === 'tasks' && data.reports.overdue_tasks > 0 && (
+                <span className="nav-count">{data.reports.overdue_tasks}</span>
+              )}
+            </a>
+          ))}
+        </nav>
+        <button className="profile" onClick={() => setRoles(true)}>
+          <Avatar name={session.name} />
+          <span>
+            <strong>{session.name}</strong>
+            <small>{roleNames[session.role]}</small>
+          </span>
+        </button>
+      </aside>
+      <div className="app-body">
+        <header className="topbar">
+          <button
+            className="icon-button mobile-menu"
+            aria-label="Open navigation"
+            onClick={() => setMobile(true)}
+          >
+            <Menu />
+          </button>
+          <div className="breadcrumb">
+            Workspace <span>/</span> <strong>{pageTitle}</strong>
+          </div>
+          <div className="topbar-right">
+            <span
+              className={'live-status ' + (live === 'Live updates' ? 'connected' : '')}
+              aria-live="polite"
+            >
+              <i />
+              {live}
+            </span>
+            <button
+              className="icon-button"
+              title="Refresh workspace"
+              aria-label="Refresh workspace"
+              onClick={() => {
+                void refresh();
+              }}
+            >
+              <RefreshCw size={17} />
+            </button>
+            <button
+              className="avatar-button"
+              onClick={() => setRoles(true)}
+              aria-label="Switch demo role"
+            >
+              <Avatar name={session.name} />
+            </button>
+          </div>
+        </header>
+        <main id="main-content" tabIndex={-1}>
+          {readOnly && (
+            <div className="readonly">
+              <Eye size={16} />
+              Viewer mode: explore the workspace. Editing is disabled.
+            </div>
+          )}
+          {Boolean(error) && (
+            <ErrorBox
+              error={error}
+              retry={() => {
+                void refresh();
+              }}
+            />
+          )}
+          {currentPage === 'dashboard' && (
+            <>
+              <PageHeading
+                title={'Good to see you, ' + session.name.split(' ')[0]}
+                subtitle="A clear view of your pipeline and the next conversation."
+                action={
+                  !readOnly && (
+                    <button className="primary" onClick={() => setEdit({ kind: 'deals' })}>
+                      <Plus size={17} />
+                      Add deal
+                    </button>
+                  )
+                }
+              />
+              <Metrics data={data} />
+              <div className="dashboard-grid">
+                <section className="panel">
+                  <PanelHeading
+                    title="Pipeline overview"
+                    subtitle="Open opportunities by stage"
+                    action={
+                      <button className="text-button" onClick={() => go('pipeline')}>
+                        View pipeline <ArrowRight size={14} />
+                      </button>
+                    }
+                  />
+                  <StageBars data={data} openOnly />
+                </section>
+                <section className="panel">
+                  <PanelHeading
+                    title="Next actions"
+                    subtitle="Keep the right conversation moving"
+                    action={<Badge tone="amber">{data.reports.overdue_tasks} overdue</Badge>}
+                  />
+                  <TaskRows
+                    tasks={[...data.tasks]
+                      .filter((t) => t.status !== 'completed')
+                      .sort((a, b) => String(a.due_at).localeCompare(String(b.due_at)))
+                      .slice(0, 4)}
+                    data={data}
+                    open={(r) => go('detail/tasks/' + r.id)}
+                    onEdit={(r) => setEdit({ kind: 'tasks', record: r })}
+                  />
+                  <button className="text-button footer-link" onClick={() => go('tasks')}>
+                    View all tasks <ArrowRight size={14} />
+                  </button>
+                </section>
+                <section className="panel dashboard-activity">
+                  <PanelHeading
+                    title="Recent activity"
+                    subtitle="A shared history of sales work"
+                    action={
+                      <button className="text-button" onClick={() => go('activity')}>
+                        All activity <ArrowRight size={14} />
+                      </button>
+                    }
+                  />
+                  <Timeline items={data.activities.slice(0, 5)} data={data} />
+                </section>
+              </div>
+            </>
+          )}
+          {(currentPage === 'contacts' ||
+            currentPage === 'companies' ||
+            currentPage === 'tasks') && (
+            <RecordList
+              key={currentPage}
+              kind={currentPage}
+              data={data}
+              revision={revision}
+              onAdd={() => setEdit({ kind: currentPage })}
+              open={(r) => go('detail/' + currentPage + '/' + r.id)}
+              onEdit={(r) => setEdit({ kind: currentPage, record: r })}
+            />
+          )}
+          {currentPage === 'pipeline' && (
+            <Pipeline
+              data={data}
+              onAdd={() => setEdit({ kind: 'deals' })}
+              open={(r) => go('detail/deals/' + r.id)}
+              move={setStage}
+            />
+          )}
+          {currentPage === 'detail' &&
+            ['companies', 'contacts', 'deals', 'tasks'].includes(detailKind) && (
+              <RecordDetail
+                key={detailKind + detailId}
+                kind={detailKind}
+                id={detailId}
+                data={data}
+                revision={revision}
+                back={() => go(detailKind === 'deals' ? 'pipeline' : detailKind)}
+                edit={(r) => setEdit({ kind: detailKind, record: r })}
+                move={setStage}
+                saved={saved}
+                open={(k, id) => go('detail/' + k + '/' + id)}
+                addTask={(r) =>
+                  setEdit({ kind: 'tasks', defaults: { [labels[detailKind] + '_id']: r.id } })
+                }
+              />
+            )}
+          {currentPage === 'reports' && (
+            <>
+              <PageHeading title="Reports" subtitle="Real workspace data. Useful sales signals." />
+              <Metrics data={data} reports />
+              <div className="reports-grid">
+                <section className="panel">
+                  <PanelHeading
+                    title="Pipeline by stage"
+                    subtitle="Open and closed opportunity values"
+                  />
+                  <StageBars data={data} />
+                </section>
+                <section className="panel">
+                  <PanelHeading
+                    title="Sales by owner"
+                    subtitle="Won revenue, not speculative forecasts"
+                  />
+                  {data.reports.by_owner.map((o) => (
+                    <div className="owner-result" key={o.id}>
+                      <Avatar name={o.name} />
+                      <div>
+                        <strong>{o.name}</strong>
+                        <small>
+                          {o.count} deals · {money(o.open_value)} open
+                        </small>
+                      </div>
+                      <b>{money(o.won_value)}</b>
+                    </div>
+                  ))}
+                  <p className="formula">
+                    Conversion = Won / (Won + Lost)
+                    <br />
+                    <span>
+                      Open deals are excluded from the denominator. Closed deals remain included
+                      when archived.
+                    </span>
+                  </p>
+                </section>
+              </div>
+              <AutomationPanel data={data} />
+            </>
+          )}
+          {currentPage === 'activity' && (
+            <>
+              <PageHeading title="Activity" subtitle="A trustworthy history of sales work." />
+              <section className="panel">
+                <PanelHeading
+                  title="Workspace activity"
+                  subtitle="Latest 100 committed events · updates appear live"
+                />
+                <Timeline items={data.activities} data={data} />
+              </section>
+            </>
+          )}
+          {currentPage === 'settings' && (
+            <>
+              <PageHeading title="Team & settings" subtitle="A small team. Clear permissions." />
+              <Team data={data} saved={saved} />
+              <div className="reports-grid">
+                <AutomationPanel data={data} />
+                <section className="panel">
+                  <PanelHeading
+                    title="Private demo session"
+                    subtitle="Temporary fictional data for this visitor"
+                  />
+                  <p>Your dataset expires on {new Date(session.expires_at).toLocaleString()}.</p>
+                  <p className="muted">
+                    Other visitors receive separate workspaces. Tabs in this browser share the same
+                    session and demo role.
+                  </p>
+                  <div className="button-row">
+                    <button onClick={() => setRoles(true)}>Switch demo role</button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await api('/session/logout', 'POST', {});
+                          setData(null);
+                          setCsrf('');
+                        } catch (e) {
+                          setError(e);
+                        }
+                      }}
+                    >
+                      <LogOut size={16} />
+                      Leave demo
+                    </button>
+                  </div>
+                </section>
+              </div>
+              <BusinessBlocks />
+            </>
+          )}
+        </main>
+        <footer className="app-footer">
+          <span>SalesFlow CRM · Fictional data · {roleNames[session.role]}</span>
+          <button className="text-button" onClick={() => go('settings')}>
+            Design, architecture & demo details <ArrowRight size={13} />
+          </button>
+        </footer>
+      </div>
+      {toast && (
+        <div className="toast" role="status">
+          <Check size={18} />
+          {toast}
+          <button aria-label="Dismiss notification" onClick={() => setToast('')}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+      {edit && (
+        <RecordForm
+          {...edit}
+          data={data}
+          onClose={() => setEdit(undefined)}
+          onSaved={() => saved()}
+        />
+      )}
+      {stage && (
+        <StageForm
+          record={stage}
+          data={data}
+          onClose={() => setStage(undefined)}
+          onSaved={() => saved('Pipeline updated')}
+        />
+      )}
+      {roles && (
+        <Modal title="Switch demo role" onClose={() => setRoles(false)} busy={busy}>
+          <div className="modal-body">
+            <p>
+              This changes the demo persona for this private workspace across your browser tabs.
+            </p>
+            {(['manager', 'representative', 'viewer'] as Role[]).map((r) => (
+              <button
+                className="role-choice"
+                key={r}
+                disabled={busy || !data.members.find((m) => m.role === r)?.active}
+                onClick={() => enter(r)}
+              >
+                <span>
+                  {roleNames[r]}
+                  <small>
+                    {r === 'manager'
+                      ? 'All records, team and assignments'
+                      : r === 'representative'
+                        ? 'Assigned records only'
+                        : 'Read-only access'}
+                  </small>
+                </span>
+                {session.role === r ? <Check size={18} /> : <ArrowRight size={18} />}
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
 }
-function PageHeading({title,subtitle,action}:{title:string;subtitle:string;action?:React.ReactNode}){return <div className="page-heading"><div><h1>{title}</h1><p>{subtitle}</p></div>{action}</div>;}
-function PanelHeading({title,subtitle,action}:{title:string;subtitle?:string;action?:React.ReactNode}){return <div className="panel-heading"><div><h2>{title}</h2>{subtitle&&<p>{subtitle}</p>}</div>{action}</div>;}
-function Metrics({data,reports=false}:{data:Bootstrap;reports?:boolean}){const r=data.reports,items=reports?[['Open pipeline',money(r.pipeline_value),'Active opportunity value'],['Won revenue',money(r.won_value),'Committed closed deals'],['Conversion',r.conversion===null?'—':r.conversion+'%','Won / all closed deals'],['Won / Lost',r.won_deals+' / '+r.lost_deals,'Closed opportunities']]:[['Open pipeline',money(r.pipeline_value),'Across '+r.open_deals+' opportunities'],['Open deals',r.open_deals,'In the active pipeline'],['Won deals',r.won_deals,money(r.won_value)+' in won revenue'],['Conversion',r.conversion===null?'—':r.conversion+'%','Won / all closed deals'],['Overdue tasks',r.overdue_tasks,'Follow-ups that need attention']];return <div className={'metrics '+(reports?'four':'')}>{items.map(([label,value,sub])=><section className="metric" key={String(label)}><span>{label}</span><strong className={label==='Overdue tasks'&&r.overdue_tasks?'amber-text':''}>{value}</strong><small>{sub}</small></section>)}</div>;}
-function StageBars({data,openOnly=false}:{data:Bootstrap;openOnly?:boolean}){const stages=data.reports.by_stage.filter(s=>!openOnly||!s.terminal),max=Math.max(1,...stages.map(s=>s.value||0));return <div className="stage-bars">{stages.map(s=><div className="stage-bar" key={s.key}><div><span className={'dot '+s.key}/><strong>{s.label}</strong><small>{s.count} deals</small></div><div className="bar-track"><span className={s.key} style={{width:(s.value||0)/max*100+'%'}}/></div><b>{money(s.value)}</b></div>)}</div>;}
-function Timeline({items,data}:{items:Activity[];data:Bootstrap}){if(!items.length)return <Empty title="No activity yet" text="Committed changes will appear here."/>;return <ol className="timeline">{items.map(a=><li key={a.id}><span className={'timeline-dot '+(a.kind==='deal.won'?'won':'')}/><div><strong>{a.summary}</strong><small>{a.actor_name||data.members.find(m=>m.id===a.member_id)?.name||'Workspace'} · <time dateTime={a.created_at}>{new Date(a.created_at).toLocaleString()}</time></small></div></li>)}</ol>;}
-function TaskRows({tasks,data,open,onEdit}:{tasks:CRMRecord[];data:Bootstrap;open:(r:CRMRecord)=>void;onEdit:(r:CRMRecord)=>void}){return tasks.length?<div className="task-rows">{tasks.map(t=><div className="task-row" key={t.id}><span className={'task-check '+(t.status==='completed'?'done':'')}><Check size={15}/></span><div className="task-text"><button className="record-link" onClick={()=>open(t)}>{t.title}</button><small>{data.members.find(m=>m.id===t.owner_id)?.name} · {dateLabel(t.due_at)}</small></div><Badge tone={overdue(t)?'amber':t.status==='completed'?'green':''}>{overdue(t)?'Overdue':titleCase(t.status)}</Badge>{canWrite(data.session,t)&&<button className="text-button task-edit" onClick={()=>onEdit(t)}>Edit</button>}</div>)}</div>:<Empty title="No tasks match" text="Try another filter or add the next action."/>;}
-function RecordList({kind,data,revision,onAdd,open,onEdit}:{kind:Kind;data:Bootstrap;revision:number;onAdd:()=>void;open:(r:CRMRecord)=>void;onEdit:(r:CRMRecord)=>void}){
- const [search,setSearch]=useState(''),[owner,setOwner]=useState(''),[status,setStatus]=useState(''),[archive,setArchive]=useState(false),[page,setPage]=useState(1),[result,setResult]=useState<{items:CRMRecord[];total:number}|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState<unknown>(),[retry,setRetry]=useState(0),[onlyOverdue,setOnlyOverdue]=useState(false);
- useEffect(()=>{let cancelled=false;setLoading(true);const timer=setTimeout(()=>{const q=new URLSearchParams({search,owner,status,archived:String(archive),page:String(page),pageSize:'10',overdue:String(onlyOverdue)});api<{items:CRMRecord[];total:number}>('/'+kind+'?'+q).then(r=>{if(!cancelled){setResult(r);setError(undefined);const max=Math.max(1,Math.ceil(r.total/10));if(page>max)setPage(max);}}).catch(e=>{if(!cancelled)setError(e);}).finally(()=>{if(!cancelled)setLoading(false);});},search?220:0);return()=>{cancelled=true;clearTimeout(timer);};},[kind,search,owner,status,archive,page,revision,retry,onlyOverdue]);
- const filter=(fn:()=>void)=>{fn();setPage(1);};const displayed=result?.items||[];
- return <><PageHeading title={titleCase(kind)} subtitle={kind==='contacts'?'The people behind your next opportunity.':kind==='companies'?'Account context, connected contacts and active opportunities.':'Keep the next conversation moving.'} action={canWrite(data.session)&&<button className="primary" onClick={onAdd}><Plus size={17}/>Add {labels[kind]}</button>}/><section className="panel list-panel"><div className="filters"><SearchField value={search} onChange={v=>filter(()=>setSearch(v))} label={'Search '+kind}/><label className="filter-field">Owner<select value={owner} onChange={e=>filter(()=>setOwner(e.target.value))}><option value="">All owners</option>{data.members.filter(m=>m.role!=='viewer').map(m=><option value={m.id} key={m.id}>{m.name}</option>)}</select></label>{kind!=='companies'&&<label className="filter-field">Status<select value={status} onChange={e=>filter(()=>setStatus(e.target.value))}><option value="">All statuses</option>{(kind==='contacts'?['lead','active','customer']:['open','in_progress','completed']).map(s=><option key={s} value={s}>{titleCase(s)}</option>)}</select></label>}{kind!=='tasks'&&<label className="checkbox-label"><input type="checkbox" checked={archive} onChange={e=>filter(()=>setArchive(e.target.checked))}/>Archived</label>}{kind==='tasks'&&<label className="checkbox-label"><input type="checkbox" checked={onlyOverdue} onChange={e=>filter(()=>setOnlyOverdue(e.target.checked))}/>Overdue tasks</label>}</div>{error?<ErrorBox error={error} retry={()=>setRetry(n=>n+1)}/>:loading?<Spinner label="Loading records…"/>:!displayed.length?<Empty title="No records match" text="Try a different search or filter."/>:kind==='tasks'?<TaskRows tasks={displayed} data={data} open={open} onEdit={onEdit}/>:<div className="record-table" role="table" aria-label={titleCase(kind)}><div className="table-head" role="row"><span role="columnheader">{kind==='contacts'?'Name / email':'Company / website'}</span><span role="columnheader">{kind==='contacts'?'Company':'Industry'}</span><span role="columnheader">Owner</span><span role="columnheader">{kind==='contacts'?'Status':'Size'}</span><span role="columnheader" className="sr-only">Actions</span></div>{displayed.map(r=><div className="table-row" key={r.id} role="row"><div className="name-cell" role="cell"><Avatar name={r.name!}/><div><button className="record-link" onClick={()=>open(r)}>{r.name}</button><small>{r.email||r.website||'No website'}</small></div></div><div role="cell" className="company-cell">{kind==='contacts'?data.companies.find(c=>c.id===r.company_id)?.name||'No company':r.industry||'Not specified'}</div><div role="cell" className="owner-cell">{data.members.find(m=>m.id===r.owner_id)?.name}</div><div role="cell"><Badge tone={r.status==='customer'?'green':''}>{archive?'Archived':r.status?titleCase(r.status):r.size||'—'}</Badge></div><div role="cell">{canWrite(data.session,r)&&!r.archived?<button className="text-button" onClick={()=>onEdit(r)}>Edit</button>:<button className="text-button" onClick={()=>open(r)}>View</button>}</div></div>)}</div>}<div className="pagination"><span>{result?.total?`${(page-1)*10+1}–${Math.min(page*10,result.total)} of ${result.total} ${kind}`:'0 records'}</span><div><button aria-label="Previous page" disabled={loading||page===1} onClick={()=>setPage(p=>p-1)}><ChevronLeft size={16}/></button><span>Page {page} of {Math.max(1,Math.ceil((result?.total||0)/10))}</span><button aria-label="Next page" disabled={loading||page*10>=(result?.total||0)} onClick={()=>setPage(p=>p+1)}><ChevronRight size={16}/></button></div></div></section></>;
+function PageHeading({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string;
+  subtitle: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="page-heading">
+      <div>
+        <h1>{title}</h1>
+        <p>{subtitle}</p>
+      </div>
+      {action}
+    </div>
+  );
 }
-function Pipeline({data,onAdd,open,move}:{data:Bootstrap;onAdd:()=>void;open:(r:CRMRecord)=>void;move:(r:CRMRecord)=>void}){const [owner,setOwner]=useState(''),[stage,setStage]=useState('proposal'),[search,setSearch]=useState('');const deals=data.deals.filter(d=>!d.archived&&(!owner||d.owner_id===owner)&&(!search||d.title!.toLowerCase().includes(search.toLowerCase())));return <><PageHeading title="Pipeline" subtitle="Every opportunity. One clear next step." action={canWrite(data.session)&&<button className="primary" onClick={onAdd}><Plus size={17}/>Add deal</button>}/><div className="pipeline-controls"><div><Badge>{deals.length} deals</Badge><span className="muted">{money(deals.filter(d=>!['won','lost'].includes(d.stage!)).reduce((s,d)=>s+(d.value||0),0))} open pipeline</span></div><SearchField value={search} onChange={setSearch} label="Search deals"/><label className="filter-field">Owner<select value={owner} onChange={e=>setOwner(e.target.value)}><option value="">All owners</option>{data.members.filter(m=>m.role!=='viewer').map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></label></div><label className="mobile-stage field">Pipeline stage<select value={stage} onChange={e=>setStage(e.target.value)}>{data.stages.map(s=><option value={s.key} key={s.key}>{s.label} · {deals.filter(d=>d.stage===s.key).length} deals</option>)}</select></label><div className="pipeline-board">{data.stages.map(s=>{const ds=deals.filter(d=>d.stage===s.key);return <section className={'pipeline-lane '+(s.key===stage?'selected-lane':'')} key={s.key} aria-label={s.label+' stage'}><header><h2><span className={'dot '+s.key}/>{s.label}</h2><Badge>{ds.length}</Badge><small>{money(ds.reduce((a,d)=>a+(d.value||0),0))}</small></header>{ds.map(d=><article className="deal-card" key={d.id}><button className="record-link" onClick={()=>open(d)}>{d.title}</button><p>{data.companies.find(c=>c.id===d.company_id)?.name}</p><strong className="deal-value">{money(d.value)}</strong><Badge tone={s.key==='won'?'green':d.priority==='high'?'amber':''}>{s.terminal?s.label:titleCase(d.priority)+' priority'}</Badge><div className="deal-meta"><Avatar name={data.members.find(m=>m.id===d.owner_id)?.name||'Team'}/><span>{data.members.find(m=>m.id===d.owner_id)?.name.split(' ')[0]}<small>{dateLabel(d.expected_close)}</small></span></div>{canWrite(data.session,d)&&(!s.terminal||data.session.role==='manager')&&<button className="stage-action" onClick={()=>move(d)}>Move stage <ArrowRight size={13}/></button>}</article>)}{!ds.length&&<p className="lane-empty">No opportunities in this stage.</p>}</section>;})}</div><p className="muted small">Use “Move stage” to change a deal. Changes are validated, saved and shared across tabs.</p></>;}
-function RecordDetail({kind,id,data,revision,back,edit,move,saved,open,addTask}:{kind:Kind;id:string;data:Bootstrap;revision:number;back:()=>void;edit:(r:CRMRecord)=>void;move:(r:CRMRecord)=>void;saved:(s?:string)=>void;open:(k:Kind,id:string)=>void;addTask:(r:CRMRecord)=>void}){
- const [detail,setDetail]=useState<Detail>(),[error,setError]=useState<unknown>(),[retry,setRetry]=useState(0),[busy,setBusy]=useState(false),[archive,setArchive]=useState(false),[note,setNote]=useState('');
- useEffect(()=>{let active=true;api<Detail>('/'+kind+'/'+id).then(d=>{if(active){setDetail(d);setError(undefined);}}).catch(e=>{if(active)setError(e);});return()=>{active=false;};},[id,kind,revision,retry]);
- if(!detail)return <><button className="text-button" onClick={back}><ArrowLeft size={16}/>Back</button>{error?<ErrorBox error={error} retry={()=>setRetry(n=>n+1)}/>:<Spinner label="Loading record…"/>}</>;
- const r=detail.record,editable=canWrite(data.session,r)&&!r.archived,company=data.companies.find(c=>c.id===r.company_id),contact=data.contacts.find(c=>c.id===r.contact_id),linkedDeal=kind==='tasks'?data.deals.find(d=>d.id===r.deal_id):undefined,owner=data.members.find(m=>m.id===r.owner_id),relatedTasks=data.tasks.filter(t=>(kind==='deals'?t.deal_id:kind==='contacts'?t.contact_id:t.company_id)===r.id);
- async function saveNote(e:FormEvent){e.preventDefault();setBusy(true);try{await api('/'+kind+'/'+id+'/notes','POST',{body:note});setNote('');saved('Note added');}catch(err){setError(err);}finally{setBusy(false);}}
- return <><button className="text-button back-link" onClick={back}><ArrowLeft size={16}/>Back to {kind==='deals'?'pipeline':kind}</button><PageHeading title={r.title||r.name||'Record'} subtitle={[linkedDeal?.title,company?.name,contact?.name].filter(Boolean).join(' · ')||'Connected workspace record'} action={<div className="button-row">{editable&&!(kind==='deals'&&['won','lost'].includes(r.stage!))&&<button onClick={()=>edit(r)}>Edit {labels[kind]}</button>}{editable&&kind==='deals'&&(!['won','lost'].includes(r.stage!)||data.session.role==='manager')&&<button className="primary" onClick={()=>move(r)}>Change stage</button>}</div>}/>{Boolean(error)&&<ErrorBox error={error}/>}<div className="detail-grid"><div className="detail-main"><section className="panel"><div className="badge-row">{r.archived&&<Badge>Archived</Badge>}{r.stage&&<Badge tone={r.stage==='won'?'green':''}>{titleCase(r.stage)}</Badge>}{r.priority&&<Badge tone={r.priority==='high'?'amber':''}>{titleCase(r.priority)} priority</Badge>}{r.status&&<Badge>{titleCase(r.status)}</Badge>}{kind==='tasks'&&overdue(r)&&<Badge tone="amber">Overdue</Badge>}</div>{kind==='deals'&&<strong className="detail-value">{money(r.value)}</strong>}<dl className="details-list">{linkedDeal&&<div><dt>Related deal</dt><dd><button className="text-button" onClick={()=>open("deals",linkedDeal.id)}>{linkedDeal.title}</button></dd></div>}<div><dt>Owner</dt><dd>{owner?.name}</dd></div>{company&&<div><dt>Company</dt><dd><button className="text-button" onClick={()=>open('companies',company.id)}>{company.name}</button></dd></div>}{contact&&<div><dt>Contact</dt><dd><button className="text-button" onClick={()=>open('contacts',contact.id)}>{contact.name}</button></dd></div>}{[['email','Email'],['phone','Phone'],['job_title','Job title'],['source','Source'],['industry','Industry'],['size','Company size'],['address','Address'],['website','Website'],['expected_close','Expected close'],['due_at','Due date'],['closed_at','Closed'],['lost_reason','Reason for loss']].map(([key,label])=>{const value=r[key as keyof CRMRecord];return value?<div key={key}><dt>{label}</dt><dd>{['expected_close','due_at','closed_at'].includes(key)?dateLabel(String(value)):String(value)}</dd></div>:null;})}</dl>{r.next_action&&<div className="next-action"><p className="eyebrow">NEXT ACTION</p><p>{r.next_action}</p></div>}{r.notes&&<p className="record-notes">{r.notes}</p>}</section>{kind!=='tasks'&&<section className="panel"><PanelHeading title="Notes" subtitle="Context for the next conversation"/>{detail.notes.map(n=><article className="note" key={n.id}><p>{n.body}</p><small>{n.author} · {new Date(n.created_at).toLocaleString()}</small></article>)}{!detail.notes.length&&<p className="muted">No additional notes yet.</p>}{editable&&<form onSubmit={saveNote}><label className="field">Add a note<textarea value={note} onChange={e=>setNote(e.target.value)} maxLength={2000} required rows={3} placeholder="Write a useful update…"/></label><button disabled={busy||!note.trim()} className="primary small-button">{busy?'Saving…':'Add note'}</button></form>}</section>}{kind!=='tasks'&&<section className="panel"><PanelHeading title="Related tasks" action={editable&&<button onClick={()=>addTask(r)}><Plus size={15}/>Add task</button>}/><TaskRows tasks={relatedTasks} data={data} open={t=>open('tasks',t.id)} onEdit={t=>open('tasks',t.id)}/></section>}{kind==='companies'&&<section className="panel"><PanelHeading title="Linked contacts & deals"/>{data.contacts.filter(c=>c.company_id===id&&!c.archived).map(c=><button className="related-link" key={c.id} onClick={()=>open('contacts',c.id)}><Users size={16}/>{c.name}<ArrowRight size={15}/></button>)}{data.deals.filter(d=>d.company_id===id&&!d.archived).map(d=><button className="related-link" key={d.id} onClick={()=>open('deals',d.id)}><GitBranch size={16}/>{d.title}<Badge>{titleCase(d.stage)}</Badge><span>{money(d.value)}</span></button>)}</section>}{editable&&kind!=='tasks'&&<button className="archive-button" onClick={()=>setArchive(true)}>Archive {labels[kind]}</button>}</div><section className="panel detail-timeline"><PanelHeading title="Activity timeline" subtitle="Updates appear live across tabs"/><Timeline items={detail.activities} data={data}/></section></div>{archive&&<Modal title={'Archive '+labels[kind]+'?'} onClose={()=>setArchive(false)} busy={busy}><div className="modal-body"><p>{r.name||r.title} will leave the active list. Its history stays available in archived records.</p><p className="muted">Open deals and active company contacts must be resolved first.</p>{Boolean(error)&&<ErrorBox error={error}/>}</div><footer><button disabled={busy} onClick={()=>setArchive(false)}>Cancel</button><button className="primary" disabled={busy} onClick={async()=>{setBusy(true);try{await api('/'+kind+'/'+id+'/archive','POST',{version:r.version});setArchive(false);saved('Record archived');}catch(e){setError(e);}finally{setBusy(false);}}}>{busy?'Archiving…':'Archive record'}</button></footer></Modal>}</>;
+function PanelHeading({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string;
+  subtitle?: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="panel-heading">
+      <div>
+        <h2>{title}</h2>
+        {subtitle && <p>{subtitle}</p>}
+      </div>
+      {action}
+    </div>
+  );
 }
-function AutomationPanel({data}:{data:Bootstrap}){return <section className="panel automation"><PanelHeading title="Won deal automation" subtitle="One useful workflow, with duplicate protection" action={<Zap size={21}/>} /><div className="automation-flow"><span>Deal Won</span><ArrowRight size={14}/><span>PostgreSQL</span><ArrowRight size={14}/><span>n8n</span><ArrowRight size={14}/><span><Bell size={14}/>Telegram</span></div><p className="muted small">Delivery status is recorded separately from the sale. A repeated event is not sent twice.</p>{data.automation.length?<div className="automation-events">{data.automation.slice(0,6).map(e=><div key={e.id}><span>{data.deals.find(d=>d.id===e.deal_id)?.title||'Won deal'}<small>{dateLabel(e.created_at)}</small></span><Badge tone={e.status==='delivered'?'green':['failed','uncertain'].includes(e.status)?'amber':''}>{e.status==='delivered'?'Telegram delivered':e.status==='uncertain'?'Delivery unconfirmed':titleCase(e.status)}</Badge></div>)}</div>:<div className="automation-empty"><ShieldCheck size={19}/><span>No new wins yet. Move a demo deal to Won to run this workflow.</span></div>}</section>;}
-function Team({data,saved}:{data:Bootstrap;saved:(s?:string)=>void}){const [member,setMember]=useState<Member>(),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>();return <section className="panel"><PanelHeading title="Demo team" subtitle="Fictional members; no invitations or emails are sent"/>{data.members.map(m=><div className="team-row" key={m.id}><Avatar name={m.name}/><div><strong>{m.name}</strong><small>{m.email}</small></div><Badge>{roleNames[m.role]}</Badge><span className="muted">{m.role==='manager'?'All records, assignments and reports':m.role==='representative'?'Own records, tasks and stage changes':'Read-only workspace access'}</span><Badge tone={m.active?'green':'amber'}>{m.active?'Active':'Inactive'}</Badge>{data.session.role==='manager'&&<button onClick={()=>{setMember(m);setError(undefined);}}>Edit</button>}</div>)}{member&&<Modal title="Edit demo team member" onClose={()=>setMember(undefined)} busy={busy}><form onSubmit={async e=>{e.preventDefault();setBusy(true);const f=new FormData(e.currentTarget);try{await api('/team/'+member.id,'PATCH',{name:f.get('name'),active:f.get('active')==='on',version:member.version});setMember(undefined);saved('Team updated');}catch(err){setError(err);}finally{setBusy(false);}}}><div className="modal-body">{Boolean(error)&&<ErrorBox error={error}/>}<label className="field">Display name<input name="name" required minLength={2} maxLength={80} defaultValue={member.name}/></label><label className="checkbox-label"><input name="active" type="checkbox" defaultChecked={member.active}/>Active member</label><p className="muted">Reassign open deals and tasks before deactivating a member. The manager must stay active.</p></div><footer><button type="button" onClick={()=>setMember(undefined)} disabled={busy}>Cancel</button><button className="primary" disabled={busy}>Save member</button></footer></form></Modal>}</section>;}
+function Metrics({ data, reports = false }: { data: Bootstrap; reports?: boolean }) {
+  const r = data.reports,
+    items = reports
+      ? [
+          ['Open pipeline', money(r.pipeline_value), 'Active opportunity value'],
+          ['Won revenue', money(r.won_value), 'Committed closed deals'],
+          [
+            'Conversion',
+            r.conversion === null ? '—' : r.conversion + '%',
+            'Won / all closed deals',
+          ],
+          ['Won / Lost', r.won_deals + ' / ' + r.lost_deals, 'Closed opportunities'],
+        ]
+      : [
+          ['Open pipeline', money(r.pipeline_value), 'Across ' + r.open_deals + ' opportunities'],
+          ['Open deals', r.open_deals, 'In the active pipeline'],
+          ['Won deals', r.won_deals, money(r.won_value) + ' in won revenue'],
+          [
+            'Conversion',
+            r.conversion === null ? '—' : r.conversion + '%',
+            'Won / all closed deals',
+          ],
+          ['Overdue tasks', r.overdue_tasks, 'Follow-ups that need attention'],
+        ];
+  return (
+    <div className={'metrics ' + (reports ? 'four' : '')}>
+      {items.map(([label, value, sub]) => (
+        <section className="metric" key={String(label)}>
+          <span>{label}</span>
+          <strong className={label === 'Overdue tasks' && r.overdue_tasks ? 'amber-text' : ''}>
+            {value}
+          </strong>
+          <small>{sub}</small>
+        </section>
+      ))}
+    </div>
+  );
+}
+function StageBars({ data, openOnly = false }: { data: Bootstrap; openOnly?: boolean }) {
+  const stages = data.reports.by_stage.filter((s) => !openOnly || !s.terminal),
+    max = Math.max(1, ...stages.map((s) => s.value || 0));
+  return (
+    <div className="stage-bars">
+      {stages.map((s) => (
+        <div className="stage-bar" key={s.key}>
+          <div>
+            <span className={'dot ' + s.key} />
+            <strong>{s.label}</strong>
+            <small>{s.count} deals</small>
+          </div>
+          <div className="bar-track">
+            <span className={s.key} style={{ width: ((s.value || 0) / max) * 100 + '%' }} />
+          </div>
+          <b>{money(s.value)}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+function Timeline({ items, data }: { items: Activity[]; data: Bootstrap }) {
+  if (!items.length)
+    return <Empty title="No activity yet" text="Committed changes will appear here." />;
+  return (
+    <ol className="timeline">
+      {items.map((a) => (
+        <li key={a.id}>
+          <span className={'timeline-dot ' + (a.kind === 'deal.won' ? 'won' : '')} />
+          <div>
+            <strong>{a.summary}</strong>
+            <small>
+              {a.actor_name || data.members.find((m) => m.id === a.member_id)?.name || 'Workspace'}{' '}
+              · <time dateTime={a.created_at}>{new Date(a.created_at).toLocaleString()}</time>
+            </small>
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+function TaskRows({
+  tasks,
+  data,
+  open,
+  onEdit,
+}: {
+  tasks: CRMRecord[];
+  data: Bootstrap;
+  open: (r: CRMRecord) => void;
+  onEdit: (r: CRMRecord) => void;
+}) {
+  return tasks.length ? (
+    <div className="task-rows">
+      {tasks.map((t) => (
+        <div className="task-row" key={t.id}>
+          <span className={'task-check ' + (t.status === 'completed' ? 'done' : '')}>
+            <Check size={15} />
+          </span>
+          <div className="task-text">
+            <button className="record-link" onClick={() => open(t)}>
+              {t.title}
+            </button>
+            <small>
+              {data.members.find((m) => m.id === t.owner_id)?.name} · {dateLabel(t.due_at)}
+            </small>
+          </div>
+          <Badge tone={overdue(t) ? 'amber' : t.status === 'completed' ? 'green' : ''}>
+            {overdue(t) ? 'Overdue' : titleCase(t.status)}
+          </Badge>
+          {canWrite(data.session, t) && (
+            <button className="text-button task-edit" onClick={() => onEdit(t)}>
+              Edit
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  ) : (
+    <Empty title="No tasks match" text="Try another filter or add the next action." />
+  );
+}
+function RecordList({
+  kind,
+  data,
+  revision,
+  onAdd,
+  open,
+  onEdit,
+}: {
+  kind: Kind;
+  data: Bootstrap;
+  revision: number;
+  onAdd: () => void;
+  open: (r: CRMRecord) => void;
+  onEdit: (r: CRMRecord) => void;
+}) {
+  const [search, setSearch] = useState(''),
+    [owner, setOwner] = useState(''),
+    [status, setStatus] = useState(''),
+    [archive, setArchive] = useState(false),
+    [page, setPage] = useState(1),
+    [result, setResult] = useState<{ items: CRMRecord[]; total: number } | null>(null),
+    [loading, setLoading] = useState(true),
+    [error, setError] = useState<unknown>(),
+    [retry, setRetry] = useState(0),
+    [onlyOverdue, setOnlyOverdue] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const timer = setTimeout(
+      () => {
+        const q = new URLSearchParams({
+          search,
+          owner,
+          status,
+          archived: String(archive),
+          page: String(page),
+          pageSize: '10',
+          overdue: String(onlyOverdue),
+        });
+        api<{ items: CRMRecord[]; total: number }>('/' + kind + '?' + q)
+          .then((r) => {
+            if (!cancelled) {
+              setResult(r);
+              setError(undefined);
+              const max = Math.max(1, Math.ceil(r.total / 10));
+              if (page > max) setPage(max);
+            }
+          })
+          .catch((e) => {
+            if (!cancelled) setError(e);
+          })
+          .finally(() => {
+            if (!cancelled) setLoading(false);
+          });
+      },
+      search ? 220 : 0,
+    );
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [kind, search, owner, status, archive, page, revision, retry, onlyOverdue]);
+  const filter = (fn: () => void) => {
+    fn();
+    setPage(1);
+  };
+  const displayed = result?.items || [];
+  return (
+    <>
+      <PageHeading
+        title={titleCase(kind)}
+        subtitle={
+          kind === 'contacts'
+            ? 'The people behind your next opportunity.'
+            : kind === 'companies'
+              ? 'Account context, connected contacts and active opportunities.'
+              : 'Keep the next conversation moving.'
+        }
+        action={
+          canWrite(data.session) && (
+            <button className="primary" onClick={onAdd}>
+              <Plus size={17} />
+              Add {labels[kind]}
+            </button>
+          )
+        }
+      />
+      <section className="panel list-panel">
+        <div className="filters">
+          <SearchField
+            value={search}
+            onChange={(v) => filter(() => setSearch(v))}
+            label={'Search ' + kind}
+          />
+          <label className="filter-field">
+            Owner
+            <select value={owner} onChange={(e) => filter(() => setOwner(e.target.value))}>
+              <option value="">All owners</option>
+              {data.members
+                .filter((m) => m.role !== 'viewer')
+                .map((m) => (
+                  <option value={m.id} key={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          {kind !== 'companies' && (
+            <label className="filter-field">
+              Status
+              <select value={status} onChange={(e) => filter(() => setStatus(e.target.value))}>
+                <option value="">All statuses</option>
+                {(kind === 'contacts'
+                  ? ['lead', 'active', 'customer']
+                  : ['open', 'in_progress', 'completed']
+                ).map((s) => (
+                  <option key={s} value={s}>
+                    {titleCase(s)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {kind !== 'tasks' && (
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={archive}
+                onChange={(e) => filter(() => setArchive(e.target.checked))}
+              />
+              Archived
+            </label>
+          )}
+          {kind === 'tasks' && (
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={onlyOverdue}
+                onChange={(e) => filter(() => setOnlyOverdue(e.target.checked))}
+              />
+              Overdue tasks
+            </label>
+          )}
+        </div>
+        {error ? (
+          <ErrorBox error={error} retry={() => setRetry((n) => n + 1)} />
+        ) : loading ? (
+          <Spinner label="Loading records…" />
+        ) : !displayed.length ? (
+          <Empty title="No records match" text="Try a different search or filter." />
+        ) : kind === 'tasks' ? (
+          <TaskRows tasks={displayed} data={data} open={open} onEdit={onEdit} />
+        ) : (
+          <div className="record-table" role="table" aria-label={titleCase(kind)}>
+            <div className="table-head" role="row">
+              <span role="columnheader">
+                {kind === 'contacts' ? 'Name / email' : 'Company / website'}
+              </span>
+              <span role="columnheader">{kind === 'contacts' ? 'Company' : 'Industry'}</span>
+              <span role="columnheader">Owner</span>
+              <span role="columnheader">{kind === 'contacts' ? 'Status' : 'Size'}</span>
+              <span role="columnheader" className="sr-only">
+                Actions
+              </span>
+            </div>
+            {displayed.map((r) => (
+              <div className="table-row" key={r.id} role="row">
+                <div className="name-cell" role="cell">
+                  <Avatar name={r.name!} />
+                  <div>
+                    <button className="record-link" onClick={() => open(r)}>
+                      {r.name}
+                    </button>
+                    <small>{r.email || r.website || 'No website'}</small>
+                  </div>
+                </div>
+                <div role="cell" className="company-cell">
+                  {kind === 'contacts'
+                    ? data.companies.find((c) => c.id === r.company_id)?.name || 'No company'
+                    : r.industry || 'Not specified'}
+                </div>
+                <div role="cell" className="owner-cell">
+                  {data.members.find((m) => m.id === r.owner_id)?.name}
+                </div>
+                <div role="cell">
+                  <Badge tone={r.status === 'customer' ? 'green' : ''}>
+                    {archive ? 'Archived' : r.status ? titleCase(r.status) : r.size || '—'}
+                  </Badge>
+                </div>
+                <div role="cell">
+                  {canWrite(data.session, r) && !r.archived ? (
+                    <button className="text-button" onClick={() => onEdit(r)}>
+                      Edit
+                    </button>
+                  ) : (
+                    <button className="text-button" onClick={() => open(r)}>
+                      View
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="pagination">
+          <span>
+            {result?.total
+              ? `${(page - 1) * 10 + 1}–${Math.min(page * 10, result.total)} of ${result.total} ${kind}`
+              : '0 records'}
+          </span>
+          <div>
+            <button
+              aria-label="Previous page"
+              disabled={loading || page === 1}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span>
+              Page {page} of {Math.max(1, Math.ceil((result?.total || 0) / 10))}
+            </span>
+            <button
+              aria-label="Next page"
+              disabled={loading || page * 10 >= (result?.total || 0)}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
+function Pipeline({
+  data,
+  onAdd,
+  open,
+  move,
+}: {
+  data: Bootstrap;
+  onAdd: () => void;
+  open: (r: CRMRecord) => void;
+  move: (r: CRMRecord) => void;
+}) {
+  const [owner, setOwner] = useState(''),
+    [stage, setStage] = useState('proposal'),
+    [search, setSearch] = useState('');
+  const deals = data.deals.filter(
+    (d) =>
+      !d.archived &&
+      (!owner || d.owner_id === owner) &&
+      (!search || d.title!.toLowerCase().includes(search.toLowerCase())),
+  );
+  return (
+    <>
+      <PageHeading
+        title="Pipeline"
+        subtitle="Every opportunity. One clear next step."
+        action={
+          canWrite(data.session) && (
+            <button className="primary" onClick={onAdd}>
+              <Plus size={17} />
+              Add deal
+            </button>
+          )
+        }
+      />
+      <div className="pipeline-controls">
+        <div>
+          <Badge>{deals.length} deals</Badge>
+          <span className="muted">
+            {money(
+              deals
+                .filter((d) => !['won', 'lost'].includes(d.stage!))
+                .reduce((s, d) => s + (d.value || 0), 0),
+            )}{' '}
+            open pipeline
+          </span>
+        </div>
+        <SearchField value={search} onChange={setSearch} label="Search deals" />
+        <label className="filter-field">
+          Owner
+          <select value={owner} onChange={(e) => setOwner(e.target.value)}>
+            <option value="">All owners</option>
+            {data.members
+              .filter((m) => m.role !== 'viewer')
+              .map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+          </select>
+        </label>
+      </div>
+      <label className="mobile-stage field">
+        Pipeline stage
+        <select value={stage} onChange={(e) => setStage(e.target.value)}>
+          {data.stages.map((s) => (
+            <option value={s.key} key={s.key}>
+              {s.label} · {deals.filter((d) => d.stage === s.key).length} deals
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="pipeline-board">
+        {data.stages.map((s) => {
+          const ds = deals.filter((d) => d.stage === s.key);
+          return (
+            <section
+              className={'pipeline-lane ' + (s.key === stage ? 'selected-lane' : '')}
+              key={s.key}
+              aria-label={s.label + ' stage'}
+            >
+              <header>
+                <h2>
+                  <span className={'dot ' + s.key} />
+                  {s.label}
+                </h2>
+                <Badge>{ds.length}</Badge>
+                <small>{money(ds.reduce((a, d) => a + (d.value || 0), 0))}</small>
+              </header>
+              {ds.map((d) => (
+                <article className="deal-card" key={d.id}>
+                  <button className="record-link" onClick={() => open(d)}>
+                    {d.title}
+                  </button>
+                  <p>{data.companies.find((c) => c.id === d.company_id)?.name}</p>
+                  <strong className="deal-value">{money(d.value)}</strong>
+                  <Badge tone={s.key === 'won' ? 'green' : d.priority === 'high' ? 'amber' : ''}>
+                    {s.terminal ? s.label : titleCase(d.priority) + ' priority'}
+                  </Badge>
+                  <div className="deal-meta">
+                    <Avatar name={data.members.find((m) => m.id === d.owner_id)?.name || 'Team'} />
+                    <span>
+                      {data.members.find((m) => m.id === d.owner_id)?.name.split(' ')[0]}
+                      <small>{dateLabel(d.expected_close)}</small>
+                    </span>
+                  </div>
+                  {canWrite(data.session, d) &&
+                    (!s.terminal || data.session.role === 'manager') && (
+                      <button className="stage-action" onClick={() => move(d)}>
+                        Move stage <ArrowRight size={13} />
+                      </button>
+                    )}
+                </article>
+              ))}
+              {!ds.length && <p className="lane-empty">No opportunities in this stage.</p>}
+            </section>
+          );
+        })}
+      </div>
+      <p className="muted small">
+        Use “Move stage” to change a deal. Changes are validated, saved and shared across tabs.
+      </p>
+    </>
+  );
+}
+function RecordDetail({
+  kind,
+  id,
+  data,
+  revision,
+  back,
+  edit,
+  move,
+  saved,
+  open,
+  addTask,
+}: {
+  kind: Kind;
+  id: string;
+  data: Bootstrap;
+  revision: number;
+  back: () => void;
+  edit: (r: CRMRecord) => void;
+  move: (r: CRMRecord) => void;
+  saved: (s?: string) => void;
+  open: (k: Kind, id: string) => void;
+  addTask: (r: CRMRecord) => void;
+}) {
+  const [detail, setDetail] = useState<Detail>(),
+    [error, setError] = useState<unknown>(),
+    [retry, setRetry] = useState(0),
+    [busy, setBusy] = useState(false),
+    [archive, setArchive] = useState(false),
+    [note, setNote] = useState('');
+  useEffect(() => {
+    let active = true;
+    api<Detail>('/' + kind + '/' + id)
+      .then((d) => {
+        if (active) {
+          setDetail(d);
+          setError(undefined);
+        }
+      })
+      .catch((e) => {
+        if (active) setError(e);
+      });
+    return () => {
+      active = false;
+    };
+  }, [id, kind, revision, retry]);
+  if (!detail)
+    return (
+      <>
+        <button className="text-button" onClick={back}>
+          <ArrowLeft size={16} />
+          Back
+        </button>
+        {error ? (
+          <ErrorBox error={error} retry={() => setRetry((n) => n + 1)} />
+        ) : (
+          <Spinner label="Loading record…" />
+        )}
+      </>
+    );
+  const r = detail.record,
+    editable = canWrite(data.session, r) && !r.archived,
+    company = data.companies.find((c) => c.id === r.company_id),
+    contact = data.contacts.find((c) => c.id === r.contact_id),
+    linkedDeal = kind === 'tasks' ? data.deals.find((d) => d.id === r.deal_id) : undefined,
+    owner = data.members.find((m) => m.id === r.owner_id),
+    relatedTasks = data.tasks.filter(
+      (t) =>
+        (kind === 'deals' ? t.deal_id : kind === 'contacts' ? t.contact_id : t.company_id) === r.id,
+    );
+  async function saveNote(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api('/' + kind + '/' + id + '/notes', 'POST', { body: note });
+      setNote('');
+      saved('Note added');
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <button className="text-button back-link" onClick={back}>
+        <ArrowLeft size={16} />
+        Back to {kind === 'deals' ? 'pipeline' : kind}
+      </button>
+      <PageHeading
+        title={r.title || r.name || 'Record'}
+        subtitle={
+          [linkedDeal?.title, company?.name, contact?.name].filter(Boolean).join(' · ') ||
+          'Connected workspace record'
+        }
+        action={
+          <div className="button-row">
+            {editable && !(kind === 'deals' && ['won', 'lost'].includes(r.stage!)) && (
+              <button onClick={() => edit(r)}>Edit {labels[kind]}</button>
+            )}
+            {editable &&
+              kind === 'deals' &&
+              (!['won', 'lost'].includes(r.stage!) || data.session.role === 'manager') && (
+                <button className="primary" onClick={() => move(r)}>
+                  Change stage
+                </button>
+              )}
+          </div>
+        }
+      />
+      {Boolean(error) && <ErrorBox error={error} />}
+      <div className="detail-grid">
+        <div className="detail-main">
+          <section className="panel">
+            <div className="badge-row">
+              {r.archived && <Badge>Archived</Badge>}
+              {r.stage && (
+                <Badge tone={r.stage === 'won' ? 'green' : ''}>{titleCase(r.stage)}</Badge>
+              )}
+              {r.priority && (
+                <Badge tone={r.priority === 'high' ? 'amber' : ''}>
+                  {titleCase(r.priority)} priority
+                </Badge>
+              )}
+              {r.status && <Badge>{titleCase(r.status)}</Badge>}
+              {kind === 'tasks' && overdue(r) && <Badge tone="amber">Overdue</Badge>}
+            </div>
+            {kind === 'deals' && <strong className="detail-value">{money(r.value)}</strong>}
+            <dl className="details-list">
+              {linkedDeal && (
+                <div>
+                  <dt>Related deal</dt>
+                  <dd>
+                    <button className="text-button" onClick={() => open('deals', linkedDeal.id)}>
+                      {linkedDeal.title}
+                    </button>
+                  </dd>
+                </div>
+              )}
+              <div>
+                <dt>Owner</dt>
+                <dd>{owner?.name}</dd>
+              </div>
+              {company && (
+                <div>
+                  <dt>Company</dt>
+                  <dd>
+                    <button className="text-button" onClick={() => open('companies', company.id)}>
+                      {company.name}
+                    </button>
+                  </dd>
+                </div>
+              )}
+              {contact && (
+                <div>
+                  <dt>Contact</dt>
+                  <dd>
+                    <button className="text-button" onClick={() => open('contacts', contact.id)}>
+                      {contact.name}
+                    </button>
+                  </dd>
+                </div>
+              )}
+              {[
+                ['email', 'Email'],
+                ['phone', 'Phone'],
+                ['job_title', 'Job title'],
+                ['source', 'Source'],
+                ['industry', 'Industry'],
+                ['size', 'Company size'],
+                ['address', 'Address'],
+                ['website', 'Website'],
+                ['expected_close', 'Expected close'],
+                ['due_at', 'Due date'],
+                ['closed_at', 'Closed'],
+                ['lost_reason', 'Reason for loss'],
+              ].map(([key, label]) => {
+                const value = r[key as keyof CRMRecord];
+                return value ? (
+                  <div key={key}>
+                    <dt>{label}</dt>
+                    <dd>
+                      {['expected_close', 'due_at', 'closed_at'].includes(key)
+                        ? dateLabel(String(value))
+                        : String(value)}
+                    </dd>
+                  </div>
+                ) : null;
+              })}
+            </dl>
+            {r.next_action && (
+              <div className="next-action">
+                <p className="eyebrow">NEXT ACTION</p>
+                <p>{r.next_action}</p>
+              </div>
+            )}
+            {r.notes && <p className="record-notes">{r.notes}</p>}
+          </section>
+          {kind !== 'tasks' && (
+            <section className="panel">
+              <PanelHeading title="Notes" subtitle="Context for the next conversation" />
+              {detail.notes.map((n) => (
+                <article className="note" key={n.id}>
+                  <p>{n.body}</p>
+                  <small>
+                    {n.author} · {new Date(n.created_at).toLocaleString()}
+                  </small>
+                </article>
+              ))}
+              {!detail.notes.length && <p className="muted">No additional notes yet.</p>}
+              {editable && (
+                <form onSubmit={saveNote}>
+                  <label className="field">
+                    Add a note
+                    <textarea
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      maxLength={2000}
+                      required
+                      rows={3}
+                      placeholder="Write a useful update…"
+                    />
+                  </label>
+                  <button disabled={busy || !note.trim()} className="primary small-button">
+                    {busy ? 'Saving…' : 'Add note'}
+                  </button>
+                </form>
+              )}
+            </section>
+          )}
+          {kind !== 'tasks' && (
+            <section className="panel">
+              <PanelHeading
+                title="Related tasks"
+                action={
+                  editable && (
+                    <button onClick={() => addTask(r)}>
+                      <Plus size={15} />
+                      Add task
+                    </button>
+                  )
+                }
+              />
+              <TaskRows
+                tasks={relatedTasks}
+                data={data}
+                open={(t) => open('tasks', t.id)}
+                onEdit={(t) => open('tasks', t.id)}
+              />
+            </section>
+          )}
+          {kind === 'companies' && (
+            <section className="panel">
+              <PanelHeading title="Linked contacts & deals" />
+              {data.contacts
+                .filter((c) => c.company_id === id && !c.archived)
+                .map((c) => (
+                  <button
+                    className="related-link"
+                    key={c.id}
+                    onClick={() => open('contacts', c.id)}
+                  >
+                    <Users size={16} />
+                    {c.name}
+                    <ArrowRight size={15} />
+                  </button>
+                ))}
+              {data.deals
+                .filter((d) => d.company_id === id && !d.archived)
+                .map((d) => (
+                  <button className="related-link" key={d.id} onClick={() => open('deals', d.id)}>
+                    <GitBranch size={16} />
+                    {d.title}
+                    <Badge>{titleCase(d.stage)}</Badge>
+                    <span>{money(d.value)}</span>
+                  </button>
+                ))}
+            </section>
+          )}
+          {editable && kind !== 'tasks' && (
+            <button className="archive-button" onClick={() => setArchive(true)}>
+              Archive {labels[kind]}
+            </button>
+          )}
+        </div>
+        <section className="panel detail-timeline">
+          <PanelHeading title="Activity timeline" subtitle="Updates appear live across tabs" />
+          <Timeline items={detail.activities} data={data} />
+        </section>
+      </div>
+      {archive && (
+        <Modal
+          title={'Archive ' + labels[kind] + '?'}
+          onClose={() => setArchive(false)}
+          busy={busy}
+        >
+          <div className="modal-body">
+            <p>
+              {r.name || r.title} will leave the active list. Its history stays available in
+              archived records.
+            </p>
+            <p className="muted">Open deals and active company contacts must be resolved first.</p>
+            {Boolean(error) && <ErrorBox error={error} />}
+          </div>
+          <footer>
+            <button disabled={busy} onClick={() => setArchive(false)}>
+              Cancel
+            </button>
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await api('/' + kind + '/' + id + '/archive', 'POST', { version: r.version });
+                  setArchive(false);
+                  saved('Record archived');
+                } catch (e) {
+                  setError(e);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? 'Archiving…' : 'Archive record'}
+            </button>
+          </footer>
+        </Modal>
+      )}
+    </>
+  );
+}
+function AutomationPanel({ data }: { data: Bootstrap }) {
+  return (
+    <section className="panel automation">
+      <PanelHeading
+        title="Won deal automation"
+        subtitle="One useful workflow, with duplicate protection"
+        action={<Zap size={21} />}
+      />
+      <div className="automation-flow">
+        <span>Deal Won</span>
+        <ArrowRight size={14} />
+        <span>PostgreSQL</span>
+        <ArrowRight size={14} />
+        <span>n8n</span>
+        <ArrowRight size={14} />
+        <span>
+          <Bell size={14} />
+          Telegram
+        </span>
+      </div>
+      <p className="muted small">
+        Delivery status is recorded separately from the sale. A repeated event is not sent twice.
+      </p>
+      {data.automation.length ? (
+        <div className="automation-events">
+          {data.automation.slice(0, 6).map((e) => (
+            <div key={e.id}>
+              <span>
+                {data.deals.find((d) => d.id === e.deal_id)?.title || 'Won deal'}
+                <small>{dateLabel(e.created_at)}</small>
+              </span>
+              <Badge
+                tone={
+                  e.status === 'delivered'
+                    ? 'green'
+                    : ['failed', 'uncertain'].includes(e.status)
+                      ? 'amber'
+                      : ''
+                }
+              >
+                {e.status === 'delivered'
+                  ? 'Telegram delivered'
+                  : e.status === 'uncertain'
+                    ? 'Delivery unconfirmed'
+                    : titleCase(e.status)}
+              </Badge>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="automation-empty">
+          <ShieldCheck size={19} />
+          <span>No new wins yet. Move a demo deal to Won to run this workflow.</span>
+        </div>
+      )}
+    </section>
+  );
+}
+function Team({ data, saved }: { data: Bootstrap; saved: (s?: string) => void }) {
+  const [member, setMember] = useState<Member>(),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState<unknown>();
+  return (
+    <section className="panel">
+      <PanelHeading
+        title="Demo team"
+        subtitle="Fictional members; no invitations or emails are sent"
+      />
+      {data.members.map((m) => (
+        <div className="team-row" key={m.id}>
+          <Avatar name={m.name} />
+          <div>
+            <strong>{m.name}</strong>
+            <small>{m.email}</small>
+          </div>
+          <Badge>{roleNames[m.role]}</Badge>
+          <span className="muted">
+            {m.role === 'manager'
+              ? 'All records, assignments and reports'
+              : m.role === 'representative'
+                ? 'Own records, tasks and stage changes'
+                : 'Read-only workspace access'}
+          </span>
+          <Badge tone={m.active ? 'green' : 'amber'}>{m.active ? 'Active' : 'Inactive'}</Badge>
+          {data.session.role === 'manager' && (
+            <button
+              onClick={() => {
+                setMember(m);
+                setError(undefined);
+              }}
+            >
+              Edit
+            </button>
+          )}
+        </div>
+      ))}
+      {member && (
+        <Modal title="Edit demo team member" onClose={() => setMember(undefined)} busy={busy}>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true);
+              const f = new FormData(e.currentTarget);
+              try {
+                await api('/team/' + member.id, 'PATCH', {
+                  name: f.get('name'),
+                  active: f.get('active') === 'on',
+                  version: member.version,
+                });
+                setMember(undefined);
+                saved('Team updated');
+              } catch (err) {
+                setError(err);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <div className="modal-body">
+              {Boolean(error) && <ErrorBox error={error} />}
+              <label className="field">
+                Display name
+                <input
+                  name="name"
+                  required
+                  minLength={2}
+                  maxLength={80}
+                  defaultValue={member.name}
+                />
+              </label>
+              <label className="checkbox-label">
+                <input name="active" type="checkbox" defaultChecked={member.active} />
+                Active member
+              </label>
+              <p className="muted">
+                Reassign open deals and tasks before deactivating a member. The manager must stay
+                active.
+              </p>
+            </div>
+            <footer>
+              <button type="button" onClick={() => setMember(undefined)} disabled={busy}>
+                Cancel
+              </button>
+              <button className="primary" disabled={busy}>
+                Save member
+              </button>
+            </footer>
+          </form>
+        </Modal>
+      )}
+    </section>
+  );
+}

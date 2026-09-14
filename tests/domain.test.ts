@@ -1,24 +1,79 @@
-import {describe,it,expect} from 'vitest';
-import {checkWrite,checkVersion,stageChange,parse,schemas,reports,isOverdue,date} from '../server/domain.mjs';
-import {notificationText} from '../server/automation.mjs';
-const manager={role:'manager',member_id:'m'},rep={role:'representative',member_id:'r'},viewer={role:'viewer',member_id:'v'},deal={owner_id:'r',version:3,stage:'proposal'};
-describe('CRM business rules',()=>{
- it('manager can edit any record',()=>expect(()=>checkWrite(manager,deal)).not.toThrow());
- it('representative edits assigned records',()=>expect(()=>checkWrite(rep,deal)).not.toThrow());
- it('representative cannot edit another owner',()=>expect(()=>checkWrite(rep,{owner_id:'m'})).toThrow(/assigned/));
- it('viewer is read-only',()=>expect(()=>checkWrite(viewer)).toThrow(/read-only/));
- it('stale version is rejected',()=>expect(()=>checkVersion(deal,2)).toThrow(/another tab/));
- it('won sets a closed timestamp',()=>expect(stageChange(rep,deal,{stage:'won',version:3},new Date('2026-09-14T00:00:00Z'))).toMatchObject({stage:'won',closed_at:'2026-09-14T00:00:00.000Z',lost_reason:null}));
- it('repeated stage is a no-op',()=>expect(stageChange(rep,deal,{stage:'proposal',version:3})).toBeNull());
- it('unknown stage is rejected',()=>expect(()=>stageChange(manager,deal,{stage:'invalid',version:3})).toThrow(/valid pipeline/));
- it('lost needs an explanation',()=>expect(()=>stageChange(manager,deal,{stage:'lost',version:3})).toThrow(/reason/));
- it('representative cannot reopen won',()=>expect(()=>stageChange(rep,{...deal,stage:'won'},{stage:'new',version:3})).toThrow(/manager/));
- it('manager reopening clears closed metadata',()=>expect(stageChange(manager,{...deal,stage:'lost'},{stage:'qualified',version:3})).toEqual({stage:'qualified',closed_at:null,lost_reason:null}));
- it('negative values fail validation',()=>expect(schemas.deals.safeParse({value:-1}).success).toBe(false));
- it('impossible calendar dates are rejected',()=>expect(()=>parse(date,'2026-02-30')).toThrow());
- it('completed tasks are never overdue',()=>expect(isOverdue({status:'completed',due_at:'2020-01-01'})).toBe(false));
- it('past incomplete tasks are overdue',()=>expect(isOverdue({status:'open',due_at:'2020-01-01'})).toBe(true));
- it('reports separate open and won and retain archived closed deals',()=>{const r=reports([{stage:'new',value:100,owner_id:'m'},{stage:'won',value:200,owner_id:'m',archived:true},{stage:'lost',value:400,owner_id:'m'}],[],[{id:'m',name:'Maya',role:'manager'}]);expect(r).toMatchObject({pipeline_value:100,won_value:200,conversion:50,open_deals:1});});
- it('no closed deals has no fabricated conversion rate',()=>expect(reports([],[],[]).conversion).toBeNull());
- it('Telegram escapes catalog text',()=>{const t=notificationText({title:'<b>Fake</b>',company:'A&B',value:20,owner:'<name>',timestamp:'now'});expect(t).toContain('&lt;b&gt;Fake&lt;/b&gt;');expect(t).toContain('A&amp;B');expect(t).not.toContain('<name>');});
+import { describe, it, expect } from 'vitest';
+import {
+  checkWrite,
+  checkVersion,
+  stageChange,
+  parse,
+  schemas,
+  reports,
+  isOverdue,
+  date,
+} from '../server/domain.mjs';
+import { notificationText } from '../server/automation.mjs';
+const manager = { role: 'manager', member_id: 'm' },
+  rep = { role: 'representative', member_id: 'r' },
+  viewer = { role: 'viewer', member_id: 'v' },
+  deal = { owner_id: 'r', version: 3, stage: 'proposal' };
+describe('CRM business rules', () => {
+  it('manager can edit any record', () => expect(() => checkWrite(manager, deal)).not.toThrow());
+  it('representative edits assigned records', () =>
+    expect(() => checkWrite(rep, deal)).not.toThrow());
+  it('representative cannot edit another owner', () =>
+    expect(() => checkWrite(rep, { owner_id: 'm' })).toThrow(/assigned/));
+  it('viewer is read-only', () => expect(() => checkWrite(viewer)).toThrow(/read-only/));
+  it('stale version is rejected', () => expect(() => checkVersion(deal, 2)).toThrow(/another tab/));
+  it('won sets a closed timestamp', () =>
+    expect(
+      stageChange(rep, deal, { stage: 'won', version: 3 }, new Date('2026-09-14T00:00:00Z')),
+    ).toMatchObject({ stage: 'won', closed_at: '2026-09-14T00:00:00.000Z', lost_reason: null }));
+  it('repeated stage is a no-op', () =>
+    expect(stageChange(rep, deal, { stage: 'proposal', version: 3 })).toBeNull());
+  it('unknown stage is rejected', () =>
+    expect(() => stageChange(manager, deal, { stage: 'invalid', version: 3 })).toThrow(
+      /valid pipeline/,
+    ));
+  it('lost needs an explanation', () =>
+    expect(() => stageChange(manager, deal, { stage: 'lost', version: 3 })).toThrow(/reason/));
+  it('representative cannot reopen won', () =>
+    expect(() => stageChange(rep, { ...deal, stage: 'won' }, { stage: 'new', version: 3 })).toThrow(
+      /manager/,
+    ));
+  it('manager reopening clears closed metadata', () =>
+    expect(
+      stageChange(manager, { ...deal, stage: 'lost' }, { stage: 'qualified', version: 3 }),
+    ).toEqual({ stage: 'qualified', closed_at: null, lost_reason: null }));
+  it('negative values fail validation', () =>
+    expect(schemas.deals.safeParse({ value: -1 }).success).toBe(false));
+  it('impossible calendar dates are rejected', () =>
+    expect(() => parse(date, '2026-02-30')).toThrow());
+  it('completed tasks are never overdue', () =>
+    expect(isOverdue({ status: 'completed', due_at: '2020-01-01' })).toBe(false));
+  it('past incomplete tasks are overdue', () =>
+    expect(isOverdue({ status: 'open', due_at: '2020-01-01' })).toBe(true));
+  it('reports separate open and won and retain archived closed deals', () => {
+    const r = reports(
+      [
+        { stage: 'new', value: 100, owner_id: 'm' },
+        { stage: 'won', value: 200, owner_id: 'm', archived: true },
+        { stage: 'lost', value: 400, owner_id: 'm' },
+      ],
+      [],
+      [{ id: 'm', name: 'Maya', role: 'manager' }],
+    );
+    expect(r).toMatchObject({ pipeline_value: 100, won_value: 200, conversion: 50, open_deals: 1 });
+  });
+  it('no closed deals has no fabricated conversion rate', () =>
+    expect(reports([], [], []).conversion).toBeNull());
+  it('Telegram escapes catalog text', () => {
+    const t = notificationText({
+      title: '<b>Fake</b>',
+      company: 'A&B',
+      value: 20,
+      owner: '<name>',
+      timestamp: 'now',
+    });
+    expect(t).toContain('&lt;b&gt;Fake&lt;/b&gt;');
+    expect(t).toContain('A&amp;B');
+    expect(t).not.toContain('<name>');
+  });
 });

@@ -1,20 +1,129 @@
 // @vitest-environment jsdom
-import {afterEach,beforeAll,expect,it,vi} from 'vitest';
-import {cleanup,render,screen,fireEvent} from '@testing-library/react';
+import { afterEach, beforeAll, expect, it, vi } from 'vitest';
+import { cleanup, render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
-import {Login,RecordForm,StageForm} from '../src/components';
-import {api,ApiError,setCsrf} from '../src/services/api';
-import {canWrite,type Bootstrap,type CRMRecord} from '../src/types';
-beforeAll(()=>{HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};});
-afterEach(()=>{cleanup();vi.unstubAllGlobals();});
-const data={session:{member_id:'m',role:'manager'},members:[{id:'m',name:'Maya',role:'manager',active:true},{id:'r',name:'Alex',role:'representative',active:true}],companies:[{id:'c',name:'Alder'}],contacts:[],deals:[],tasks:[],stages:[{key:'proposal',label:'Proposal'},{key:'won',label:'Won'},{key:'lost',label:'Lost'}]} as unknown as Bootstrap;
-it('one click passes the requested persona',async()=>{const enter=vi.fn();render(<Login enter={enter} busy={false} error={null}/>);await userEvent.click(screen.getByRole('button',{name:'Enter as Representative'}));expect(enter).toHaveBeenCalledWith('representative');});
-it('entry is disabled while creating a workspace',()=>{render(<Login enter={()=>{}} busy error={null}/>);expect(screen.getByRole('button',{name:'Enter as Manager'})).toBeDisabled();});
-it('entry errors are visible without pretending success',()=>{render(<Login enter={()=>{}} busy={false} error={new Error('Server unavailable')}/>);expect(screen.getByRole('alert')).toHaveTextContent('Server unavailable');});
-it('viewer and non-owner controls are denied',()=>{expect(canWrite({...data.session,role:'viewer'})).toBe(false);expect(canWrite({...data.session,role:'representative',member_id:'r'},{owner_id:'m'} as CRMRecord)).toBe(false);});
-it('a new contact has required identity and company controls',()=>{render(<RecordForm kind="contacts" data={data} onClose={()=>{}} onSaved={()=>{}}/>);expect(screen.getByLabelText('Full name *')).toBeRequired();expect(screen.getByLabelText('Email *')).toHaveAttribute('type','email');expect(screen.getByLabelText('Company')).toBeInTheDocument();});
-it('lost stage asks for a reason and won explains notification',async()=>{render(<StageForm record={{id:'d',title:'Alder rollout',stage:'proposal',version:1,value:12000} as CRMRecord} data={data} onClose={()=>{}} onSaved={()=>{}}/>);await userEvent.selectOptions(screen.getByLabelText('Stage'),'lost');expect(screen.getByLabelText('Reason for loss *')).toBeRequired();await userEvent.selectOptions(screen.getByLabelText('Stage'),'won');expect(screen.getByText(/queues one Telegram/)).toBeInTheDocument();});
-it('conflict feedback keeps the edit dialog open',async()=>{vi.stubGlobal('fetch',vi.fn(async()=>Response.json({error:{code:'CONFLICT',message:'Changed in another tab'}},{status:409})));render(<RecordForm kind="companies" record={{id:'c',name:'Alder',owner_id:'m',version:1} as CRMRecord} data={data} onClose={()=>{}} onSaved={()=>{}}/>);fireEvent.submit(screen.getByRole('button',{name:'Save company'}).closest('form')!);expect(await screen.findByRole('alert')).toHaveTextContent('Changed in another tab');expect(screen.getByLabelText('Company name *')).toHaveValue('Alder');});
-it('API sends same-origin cookie requests with CSRF only for writes',async()=>{const fn=vi.fn(async(_url:string,_init:RequestInit)=>Response.json({ok:true}));vi.stubGlobal('fetch',fn);setCsrf('csrf-test');await api('/contacts','POST',{name:'Test'});expect(fn.mock.calls[0][1]).toMatchObject({credentials:'same-origin',headers:{'X-CSRF-Token':'csrf-test'}});});
-it('network failure says delivery is uncertain',async()=>{vi.stubGlobal('fetch',vi.fn(async()=>{throw new Error('offline');}));await expect(api('/contacts','POST',{})).rejects.toBeInstanceOf(ApiError);await expect(api('/contacts','POST',{})).rejects.toThrow(/may have reached/);});
+import { Login, RecordForm, StageForm } from '../src/components';
+import { api, ApiError, setCsrf } from '../src/services/api';
+import { canWrite, type Bootstrap, type CRMRecord } from '../src/types';
+beforeAll(() => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+const data = {
+  session: { member_id: 'm', role: 'manager' },
+  members: [
+    { id: 'm', name: 'Maya', role: 'manager', active: true },
+    { id: 'r', name: 'Alex', role: 'representative', active: true },
+  ],
+  companies: [{ id: 'c', name: 'Alder' }],
+  contacts: [],
+  deals: [],
+  tasks: [],
+  stages: [
+    { key: 'proposal', label: 'Proposal' },
+    { key: 'won', label: 'Won' },
+    { key: 'lost', label: 'Lost' },
+  ],
+} as unknown as Bootstrap;
+it('one click passes the requested persona', async () => {
+  const enter = vi.fn();
+  render(<Login enter={enter} busy={false} error={null} />);
+  await userEvent.click(screen.getByRole('button', { name: 'Enter as Representative' }));
+  expect(enter).toHaveBeenCalledWith('representative');
+});
+it('entry is disabled while creating a workspace', () => {
+  render(<Login enter={() => {}} busy error={null} />);
+  expect(screen.getByRole('button', { name: 'Enter as Manager' })).toBeDisabled();
+});
+it('entry errors are visible without pretending success', () => {
+  render(<Login enter={() => {}} busy={false} error={new Error('Server unavailable')} />);
+  expect(screen.getByRole('alert')).toHaveTextContent('Server unavailable');
+});
+it('viewer and non-owner controls are denied', () => {
+  expect(canWrite({ ...data.session, role: 'viewer' })).toBe(false);
+  expect(
+    canWrite({ ...data.session, role: 'representative', member_id: 'r' }, {
+      owner_id: 'm',
+    } as CRMRecord),
+  ).toBe(false);
+});
+it('a new contact has required identity and company controls', () => {
+  render(<RecordForm kind="contacts" data={data} onClose={() => {}} onSaved={() => {}} />);
+  expect(screen.getByLabelText('Full name *')).toBeRequired();
+  expect(screen.getByLabelText('Email *')).toHaveAttribute('type', 'email');
+  expect(screen.getByLabelText('Company')).toBeInTheDocument();
+});
+it('lost stage asks for a reason and won explains notification', async () => {
+  render(
+    <StageForm
+      record={
+        {
+          id: 'd',
+          title: 'Alder rollout',
+          stage: 'proposal',
+          version: 1,
+          value: 12000,
+        } as CRMRecord
+      }
+      data={data}
+      onClose={() => {}}
+      onSaved={() => {}}
+    />,
+  );
+  await userEvent.selectOptions(screen.getByLabelText('Stage'), 'lost');
+  expect(screen.getByLabelText('Reason for loss *')).toBeRequired();
+  await userEvent.selectOptions(screen.getByLabelText('Stage'), 'won');
+  expect(screen.getByText(/queues one Telegram/)).toBeInTheDocument();
+});
+it('conflict feedback keeps the edit dialog open', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Response.json(
+        { error: { code: 'CONFLICT', message: 'Changed in another tab' } },
+        { status: 409 },
+      ),
+    ),
+  );
+  render(
+    <RecordForm
+      kind="companies"
+      record={{ id: 'c', name: 'Alder', owner_id: 'm', version: 1 } as CRMRecord}
+      data={data}
+      onClose={() => {}}
+      onSaved={() => {}}
+    />,
+  );
+  fireEvent.submit(screen.getByRole('button', { name: 'Save company' }).closest('form')!);
+  expect(await screen.findByRole('alert')).toHaveTextContent('Changed in another tab');
+  expect(screen.getByLabelText('Company name *')).toHaveValue('Alder');
+});
+it('API sends same-origin cookie requests with CSRF only for writes', async () => {
+  const fn = vi.fn(async (_url: string, _init: RequestInit) => Response.json({ ok: true }));
+  vi.stubGlobal('fetch', fn);
+  setCsrf('csrf-test');
+  await api('/contacts', 'POST', { name: 'Test' });
+  expect(fn.mock.calls[0][1]).toMatchObject({
+    credentials: 'same-origin',
+    headers: { 'X-CSRF-Token': 'csrf-test' },
+  });
+});
+it('network failure says delivery is uncertain', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      throw new Error('offline');
+    }),
+  );
+  await expect(api('/contacts', 'POST', {})).rejects.toBeInstanceOf(ApiError);
+  await expect(api('/contacts', 'POST', {})).rejects.toThrow(/may have reached/);
+});

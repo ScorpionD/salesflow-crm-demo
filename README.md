@@ -109,7 +109,7 @@ Workflow source: [`n8n/workflow.mjs`](n8n/workflow.mjs). Credentials and manager
 
 ## Tests and verification
 
-The suite covers domain rules, UI behavior, gateway protection and **real PostgreSQL integration using a restricted application role**. Integration coverage includes two workspaces/RLS, contact/company CRUD, search/filter/pagination, server role permissions, stage transitions, invalid data, tasks/overdue counts, notes/activity, reports, concurrent conflicts, session restoration/logout, SSE and notification claim/receipt idempotency.
+**60 automated tests passed:** 18 domain, 9 frontend/service, 8 gateway and 25 PostgreSQL integration checks. The suite covers domain rules, UI behavior, gateway protection and **real PostgreSQL integration using a restricted application role**. [GitHub Actions](https://github.com/ScorpionD/salesflow-crm-demo/actions/workflows/ci.yml) repeats the full database suite, lint and production build on pushes and pull requests. Integration coverage includes two workspaces/RLS, contact/company CRUD, search/filter/pagination, server role permissions, stage transitions, invalid data, tasks/overdue counts, notes/activity, reports, concurrent conflicts, session restoration/logout, SSE and notification claim/receipt idempotency.
 
 ```sh
 npm ci

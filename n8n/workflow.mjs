@@ -1,8 +1,120 @@
-import {randomUUID} from 'node:crypto';
-export function salesflowWorkflow({headerCredential,telegramCredential,chatId}){
- const auth={id:headerCredential,name:'SalesFlow automation authentication'};
- const http=(name,path,body,position)=>({id:randomUUID(),name,type:'n8n-nodes-base.httpRequest',typeVersion:4.2,position,parameters:{method:'POST',url:'http://api:4600/internal/automation/'+path,authentication:'genericCredentialType',genericAuthType:'httpHeaderAuth',sendBody:true,specifyBody:'json',jsonBody:body,options:{timeout:8000}},credentials:{httpHeaderAuth:auth}});
- const nodes=[{id:randomUUID(),name:'Deal won',type:'n8n-nodes-base.webhook',typeVersion:2,position:[0,0],webhookId:'salesflow-won',parameters:{httpMethod:'POST',path:'salesflow-won',authentication:'headerAuth',responseMode:'onReceived',options:{}},credentials:{httpHeaderAuth:auth}},http('Claim notification','claim','={{ JSON.stringify({eventId: $json.body.eventId, workspaceId: $json.body.workspaceId}) }}',[240,0]),{id:randomUUID(),name:'Send only claimed event',type:'n8n-nodes-base.if',typeVersion:2.2,position:[480,0],parameters:{conditions:{options:{caseSensitive:true,leftValue:'',typeValidation:'strict',version:2},conditions:[{id:randomUUID(),leftValue:'={{ $json.claimed }}',rightValue:true,operator:{type:'boolean',operation:'true',singleValue:true}}],combinator:'and'},options:{}}},{id:randomUUID(),name:'Telegram manager notification',type:'n8n-nodes-base.telegram',typeVersion:1.2,position:[720,-80],parameters:{chatId,text:'={{ $json.text }}',additionalFields:{appendAttribution:false,parse_mode:'HTML',disable_web_page_preview:true}},credentials:{telegramApi:{id:telegramCredential,name:'SalesFlow manager Telegram'}},onError:'continueRegularOutput'},http('Record delivery receipt','complete',"={{ JSON.stringify({eventId: $('Claim notification').item.json.eventId, workspaceId: $('Claim notification').item.json.workspaceId, claim: $('Claim notification').item.json.claim, delivered: Boolean($json.message_id || $json.result?.message_id), receipt: String($json.message_id || $json.result?.message_id || '')}) }}",[960,-80])];
- nodes[4].retryOnFail=true;nodes[4].maxTries=3;nodes[4].waitBetweenTries=1000;
- return {id:'salesflowWonDemo',name:'SalesFlow CRM · won deals → Telegram',nodes,connections:{'Deal won':{main:[[{node:'Claim notification',type:'main',index:0}]]},'Claim notification':{main:[[{node:'Send only claimed event',type:'main',index:0}]]},'Send only claimed event':{main:[[{node:'Telegram manager notification',type:'main',index:0}],[]]},'Telegram manager notification':{main:[[{node:'Record delivery receipt',type:'main',index:0}]]}},settings:{executionOrder:'v1',timezone:'UTC',saveDataErrorExecution:'none',saveDataSuccessExecution:'none',saveManualExecutions:false,executionTimeout:40}};
+import { randomUUID } from 'node:crypto';
+export function salesflowWorkflow({ headerCredential, telegramCredential, chatId }) {
+  const auth = { id: headerCredential, name: 'SalesFlow automation authentication' };
+  const http = (name, path, body, position) => ({
+    id: randomUUID(),
+    name,
+    type: 'n8n-nodes-base.httpRequest',
+    typeVersion: 4.2,
+    position,
+    parameters: {
+      method: 'POST',
+      url: 'http://api:4600/internal/automation/' + path,
+      authentication: 'genericCredentialType',
+      genericAuthType: 'httpHeaderAuth',
+      sendBody: true,
+      specifyBody: 'json',
+      jsonBody: body,
+      options: { timeout: 8000 },
+    },
+    credentials: { httpHeaderAuth: auth },
+  });
+  const nodes = [
+    {
+      id: randomUUID(),
+      name: 'Deal won',
+      type: 'n8n-nodes-base.webhook',
+      typeVersion: 2,
+      position: [0, 0],
+      webhookId: 'salesflow-won',
+      parameters: {
+        httpMethod: 'POST',
+        path: 'salesflow-won',
+        authentication: 'headerAuth',
+        responseMode: 'onReceived',
+        options: {},
+      },
+      credentials: { httpHeaderAuth: auth },
+    },
+    http(
+      'Claim notification',
+      'claim',
+      '={{ JSON.stringify({eventId: $json.body.eventId, workspaceId: $json.body.workspaceId}) }}',
+      [240, 0],
+    ),
+    {
+      id: randomUUID(),
+      name: 'Send only claimed event',
+      type: 'n8n-nodes-base.if',
+      typeVersion: 2.2,
+      position: [480, 0],
+      parameters: {
+        conditions: {
+          options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
+          conditions: [
+            {
+              id: randomUUID(),
+              leftValue: '={{ $json.claimed }}',
+              rightValue: true,
+              operator: { type: 'boolean', operation: 'true', singleValue: true },
+            },
+          ],
+          combinator: 'and',
+        },
+        options: {},
+      },
+    },
+    {
+      id: randomUUID(),
+      name: 'Telegram manager notification',
+      type: 'n8n-nodes-base.telegram',
+      typeVersion: 1.2,
+      position: [720, -80],
+      parameters: {
+        chatId,
+        text: '={{ $json.text }}',
+        additionalFields: {
+          appendAttribution: false,
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+        },
+      },
+      credentials: { telegramApi: { id: telegramCredential, name: 'SalesFlow manager Telegram' } },
+      onError: 'continueRegularOutput',
+    },
+    http(
+      'Record delivery receipt',
+      'complete',
+      "={{ JSON.stringify({eventId: $('Claim notification').item.json.eventId, workspaceId: $('Claim notification').item.json.workspaceId, claim: $('Claim notification').item.json.claim, delivered: Boolean($json.message_id || $json.result?.message_id), receipt: String($json.message_id || $json.result?.message_id || '')}) }}",
+      [960, -80],
+    ),
+  ];
+  nodes[4].retryOnFail = true;
+  nodes[4].maxTries = 3;
+  nodes[4].waitBetweenTries = 1000;
+  return {
+    id: 'salesflowWonDemo',
+    name: 'SalesFlow CRM · won deals → Telegram',
+    nodes,
+    connections: {
+      'Deal won': { main: [[{ node: 'Claim notification', type: 'main', index: 0 }]] },
+      'Claim notification': {
+        main: [[{ node: 'Send only claimed event', type: 'main', index: 0 }]],
+      },
+      'Send only claimed event': {
+        main: [[{ node: 'Telegram manager notification', type: 'main', index: 0 }], []],
+      },
+      'Telegram manager notification': {
+        main: [[{ node: 'Record delivery receipt', type: 'main', index: 0 }]],
+      },
+    },
+    settings: {
+      executionOrder: 'v1',
+      timezone: 'UTC',
+      saveDataErrorExecution: 'none',
+      saveDataSuccessExecution: 'none',
+      saveManualExecutions: false,
+      executionTimeout: 40,
+    },
+  };
 }

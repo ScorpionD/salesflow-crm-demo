@@ -1,12 +1,86 @@
-import {it,expect,vi} from 'vitest';
+import { it, expect, vi } from 'vitest';
 import gateway from '../worker/index.mjs';
-const origin='https://salesflow-crm-demo-7id.pages.dev';
-function env(){return {PUBLIC_ORIGIN:origin,ORIGIN_SECRET:'test-origin-only',EDGE_RATE:{limit:vi.fn(async()=>({success:true}))},PRIVATE_API:{fetch:vi.fn(async(_request:Request)=>Response.json({ok:true}))}};}
-it('blocks internal automation URLs',async()=>expect((await gateway.fetch(new Request(origin+'/internal/automation/claim'),env())).status).toBe(404));
-it('rejects another origin',async()=>expect((await gateway.fetch(new Request('https://example.com/api/session'),env())).status).toBe(403));
-it('rejects forged write Origin',async()=>expect((await gateway.fetch(new Request(origin+'/api/contacts',{method:'POST',headers:{Origin:'https://example.com'}}),env())).status).toBe(403));
-it('limits requests at the edge',async()=>{const e=env();e.EDGE_RATE.limit.mockResolvedValue({success:false});expect((await gateway.fetch(new Request(origin+'/api/session'),e)).status).toBe(429);});
-it('limits actual body length even without Content-Length',async()=>{const r=new Request(origin+'/api/contacts',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({name:'a'.repeat(32768)})});expect((await gateway.fetch(r,env())).status).toBe(413);});
-it('replaces privileged headers and forwards CSRF/session',async()=>{const e=env();await gateway.fetch(new Request(origin+'/api/bootstrap',{headers:{'X-Origin-Secret':'forged','CF-Connecting-IP':'192.0.2.1',Cookie:'salesflow_session=test','X-Automation-Secret':'not-forwarded'}}),e);const r=e.PRIVATE_API.fetch.mock.calls[0][0] as Request;expect(r.headers.get('X-Origin-Secret')).toBe('test-origin-only');expect(r.headers.get('X-Automation-Secret')).toBeNull();expect(r.headers.get('cookie')).toBe('salesflow_session=test');expect(r.headers.get('X-Forwarded-For')).toBe('192.0.2.1');});
-it('preserves a streaming response and Last-Event-ID',async()=>{const e=env();e.PRIVATE_API.fetch.mockImplementation(async()=>new Response('event: sync\ndata: {}\n\n',{headers:{'Content-Type':'text/event-stream'}}));const r=await gateway.fetch(new Request(origin+'/api/events',{headers:{'Last-Event-ID':'42'}}),e);expect(r.headers.get('content-type')).toContain('text/event-stream');expect((e.PRIVATE_API.fetch.mock.calls[0][0] as Request).headers.get('Last-Event-ID')).toBe('42');expect(await r.text()).toContain('event: sync');});
-it('upstream failures return safe JSON',async()=>{const e=env();e.PRIVATE_API.fetch.mockRejectedValue(new Error('private-address-secret'));const r=await gateway.fetch(new Request(origin+'/api/session'),e);expect(r.status).toBe(503);expect(await r.text()).not.toContain('private-address-secret');});
+const origin = 'https://salesflow-crm-demo-7id.pages.dev';
+function env() {
+  return {
+    PUBLIC_ORIGIN: origin,
+    ORIGIN_SECRET: 'test-origin-only',
+    EDGE_RATE: { limit: vi.fn(async () => ({ success: true })) },
+    PRIVATE_API: { fetch: vi.fn(async (_request: Request) => Response.json({ ok: true })) },
+  };
+}
+it('blocks internal automation URLs', async () =>
+  expect(
+    (await gateway.fetch(new Request(origin + '/internal/automation/claim'), env())).status,
+  ).toBe(404));
+it('rejects another origin', async () =>
+  expect((await gateway.fetch(new Request('https://example.com/api/session'), env())).status).toBe(
+    403,
+  ));
+it('rejects forged write Origin', async () =>
+  expect(
+    (
+      await gateway.fetch(
+        new Request(origin + '/api/contacts', {
+          method: 'POST',
+          headers: { Origin: 'https://example.com' },
+        }),
+        env(),
+      )
+    ).status,
+  ).toBe(403));
+it('limits requests at the edge', async () => {
+  const e = env();
+  e.EDGE_RATE.limit.mockResolvedValue({ success: false });
+  expect((await gateway.fetch(new Request(origin + '/api/session'), e)).status).toBe(429);
+});
+it('limits actual body length even without Content-Length', async () => {
+  const r = new Request(origin + '/api/contacts', {
+    method: 'POST',
+    headers: { Origin: origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'a'.repeat(32768) }),
+  });
+  expect((await gateway.fetch(r, env())).status).toBe(413);
+});
+it('replaces privileged headers and forwards CSRF/session', async () => {
+  const e = env();
+  await gateway.fetch(
+    new Request(origin + '/api/bootstrap', {
+      headers: {
+        'X-Origin-Secret': 'forged',
+        'CF-Connecting-IP': '192.0.2.1',
+        Cookie: 'salesflow_session=test',
+        'X-Automation-Secret': 'not-forwarded',
+      },
+    }),
+    e,
+  );
+  const r = e.PRIVATE_API.fetch.mock.calls[0][0] as Request;
+  expect(r.headers.get('X-Origin-Secret')).toBe('test-origin-only');
+  expect(r.headers.get('X-Automation-Secret')).toBeNull();
+  expect(r.headers.get('cookie')).toBe('salesflow_session=test');
+  expect(r.headers.get('X-Forwarded-For')).toBe('192.0.2.1');
+});
+it('preserves a streaming response and Last-Event-ID', async () => {
+  const e = env();
+  e.PRIVATE_API.fetch.mockImplementation(
+    async () =>
+      new Response('event: sync\ndata: {}\n\n', {
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+  );
+  const r = await gateway.fetch(
+    new Request(origin + '/api/events', { headers: { 'Last-Event-ID': '42' } }),
+    e,
+  );
+  expect(r.headers.get('content-type')).toContain('text/event-stream');
+  expect((e.PRIVATE_API.fetch.mock.calls[0][0] as Request).headers.get('Last-Event-ID')).toBe('42');
+  expect(await r.text()).toContain('event: sync');
+});
+it('upstream failures return safe JSON', async () => {
+  const e = env();
+  e.PRIVATE_API.fetch.mockRejectedValue(new Error('private-address-secret'));
+  const r = await gateway.fetch(new Request(origin + '/api/session'), e);
+  expect(r.status).toBe(503);
+  expect(await r.text()).not.toContain('private-address-secret');
+});
