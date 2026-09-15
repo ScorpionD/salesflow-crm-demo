@@ -152,6 +152,10 @@ Cloudflare Pages configuration:
 
 The Worker uses a private VPC service binding, edge rate limiter, `PUBLIC_ORIGIN` variable and `ORIGIN_SECRET` secret. All secrets belong in server/Cloudflare/n8n settings. `scripts/deploy-server.sh` documents the isolated host deployment; adapt its named paths to your own host. `scripts/test-postgres.sh` runs the real integration suite in a separate test database.
 
+Configure the VPC HTTP service to resolve **`salesflow-api.internal`** on port **4600**, using the SalesFlow tunnel and an explicit Docker DNS resolver **`127.0.0.11`**. The production Compose file attaches this unique alias only to the API's shared `edge` network. Do not use a generic `api` hostname or a container IP copied from another network: a healthy API and tunnel can still produce public 503 responses when the VPC destination resolves incorrectly. Keep the tunnel off the database network and keep all origin host ports private.
+
+After deployment, verify the **public** `/api/health` endpoint and a role-entry/session restoration scenario. Container health alone does not test the Pages → Worker → VPC → API route. If only the public route fails, compare the tunnel's origin-error logs with the API address resolved from inside the tunnel network before restarting application or database services.
+
 ## Customization and limitations
 
 Suitable as a starting point for sales teams, service businesses, B2B companies, agencies, account management, customer success, real estate and automotive workflows.

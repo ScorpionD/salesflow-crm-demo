@@ -1,5 +1,20 @@
 # Verification record
 
+## Public connectivity repair — September 15, 2026
+
+The public gateway returned 503 while the API/database health checks and tunnel connections were healthy. Tunnel logs showed attempts to reach an obsolete private address. Resolving the generic `api` hostname from the tunnel's Docker network returned a different, reachable address; an unauthenticated request reached the expected origin protection (403).
+
+The VPC service now uses the unique `salesflow-api.internal` alias, scoped to the shared edge network, and explicitly uses Docker DNS at `127.0.0.11` through the existing SalesFlow tunnel. Only the SalesFlow API container was recreated to apply the alias; database volumes and the other applications were not changed. Deployment now checks the public health endpoint as well as container status.
+
+Verification after repair:
+
+- Public `/api/health`: 200, `status: ok`.
+- New Manager, Representative and Viewer sessions: 201; session restoration, bootstrap, paginated contacts and logout: 200 for each role.
+- Existing Chrome session restored its previous dashboard and seven contacts, including the earlier fictional Sam Taylor record; the Contacts page remained available after reload.
+- 35 domain/frontend/gateway tests passed; production build passed. The unchanged 25-test PostgreSQL suite was not rerun for this network configuration repair.
+
+The application UI and business logic were unchanged. The original full verification below records the earlier 60-test run separately.
+
 Date: **September 14, 2026**. Target: [public Cloudflare Pages deployment](https://salesflow-crm-demo-7id.pages.dev/).
 
 ## Automated checks

@@ -9,3 +9,6 @@ docker exec -i salesflow-crm-db-1 psql -v ON_ERROR_STOP=1 -U postgres -d salesfl
 docker exec -i salesflow-crm-db-1 psql -v ON_ERROR_STOP=1 -U postgres -d salesflow < db/grants.sql
 $C --env-file runtime.env -f compose.yaml -f compose.production.yaml up -d api n8n tunnel
 docker ps --filter name=salesflow-crm --format '{{.Names}} {{.Status}}'
+# Container health does not verify the Pages/Worker/VPC route.
+curl --fail --silent --show-error --max-time 15 --retry 4 --retry-delay 2 \
+  --retry-connrefused https://salesflow-crm-demo-7id.pages.dev/api/health

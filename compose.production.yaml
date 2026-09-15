@@ -3,6 +3,11 @@ services:
     ports: !reset []
   api:
     ports: !reset []
+    networks:
+      database: {}
+      edge:
+        aliases: [salesflow-api.internal]
+      automation: {}
   n8n:
     ports: !reset []
   tunnel:
